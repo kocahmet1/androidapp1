@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, TouchableOpacity, Image, Animated } from 'react-native';
+import { StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 
 export default function LogoButton({ destination = '/(tabs)', size = 50, style = {} }) {
@@ -30,12 +30,7 @@ export default function LogoButton({ destination = '/(tabs)', size = 50, style =
       <TouchableOpacity 
         style={[styles.button, { width: size, height: size }, style]} 
         onPress={handlePress}
-      >
-        <Image 
-          source={require('../../assets/images/1630603219122.jpeg')} 
-          style={styles.logo} 
-        />
-      </TouchableOpacity>
+      />
     </Animated.View>
   );
 }
@@ -49,9 +44,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
-  },
-  logo: {
-    width: '100%',
-    height: '100%',
+    backgroundColor: '#4F46E5',
   }
 });

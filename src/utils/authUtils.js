@@ -35,12 +35,3 @@ export const clearAuthData = async () => {
     return false;
   }
 };
-/**
- * Checks if the current user is an admin
- * @returns {boolean} True if the user is admin, false otherwise
- */
-export const isAdmin = () => {
-  const user = auth.currentUser;
-  // Only return true if the user exists AND their email is the admin email
-  return !!user && user.email === 'ahmetkoc1@gmail.com';
-};

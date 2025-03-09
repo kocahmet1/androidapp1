@@ -3,8 +3,6 @@ import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { auth } from '../../src/firebase/config'; // Import from the correct path
 
 function DeckCard({ deck, onPress }) {
-  const isAdmin = auth.currentUser?.email === 'ahmetkoc1@gmail.com';
-
   return (
     <TouchableOpacity style={styles.deckCard} onPress={onPress}>
       <Text style={styles.deckName}>{deck.name}</Text>
@@ -12,12 +10,6 @@ function DeckCard({ deck, onPress }) {
       <Text style={styles.cardCount}>
         {deck.cards ? (Array.isArray(deck.cards) ? deck.cards.length : Object.keys(deck.cards).length) : 0} cards
       </Text>
-
-      {isAdmin && deck.autoForkForAll && (
-        <View style={styles.autoForkBadge}>
-          <Text style={styles.autoForkText}>Auto-Fork Enabled</Text>
-        </View>
-      )}
     </TouchableOpacity>
   );
 }
@@ -48,20 +40,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     backgroundColor: '#fff',
-  },
-  autoForkBadge: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
-    alignSelf: 'flex-start',
-  },
-  autoForkText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  }
 });
 
 export default DeckCard;

@@ -5,7 +5,6 @@ import { useDecks } from '../../src/hooks/useDecks';
 import { LinearGradient } from 'expo-linear-gradient';
 import ImportButton from '../../src/components/ImportButton'; // Added import for ImportButton
 import { auth } from '../../src/firebase/config'; // Import auth directly
-import AdminDeckControls from '../../src/components/AdminDeckControls'; //Import AdminDeckControls
 import { Platform } from 'react-native';
 import Animated, { 
   FadeInDown, 
@@ -22,12 +21,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 
-
 export default function DeckScreen() {
   const [newDeckName, setNewDeckName] = useState('');
-  const { decks, loading, error, addDeck } = useDecks();
+  const { decks, loading, error, createDeck } = useDecks(); // Use createDeck instead of addDeck
   const user = auth.currentUser; // Access user directly from Firebase auth
   const [animatedValue] = useState(new Animated.Value(0));
+  const { deck } = useLocalSearchParams(); // Get current deck ID from URL params
 
   // Animation effect when screen loads
   useEffect(() => {
@@ -40,7 +39,7 @@ export default function DeckScreen() {
 
   const handleCreateDeck = async () => {
     if (newDeckName.trim()) {
-      const deckId = await addDeck(newDeckName.trim());
+      const deckId = await createDeck(newDeckName.trim()); // Use createDeck instead of addDeck
       setNewDeckName('');
       if (deckId) {
         router.push(`/deck/${deckId}`);
@@ -693,10 +692,18 @@ export default function DeckScreen() {
           </Animated.View>
         }
       />
-      {/* Conditionally render ImportButton */}
-      {user && user.email === 'ahmetkoc1@gmail.com' && (
-        <ImportButton onPress={handleImportWords} />
-      )} {/*Assumed handleImportWords function exists*/}
+      {/* Make ImportButton available to all users */}
+      {user && (
+        <ImportButton 
+          onPress={() => {
+            // Navigate to import page for the current deck
+            if (deck) {
+              router.push(`/import-csv?deckId=${deck}`);
+            }
+          }} 
+          style={styles.importButton} 
+        />
+      )}
     </View>
   );
 }
@@ -1034,5 +1041,17 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 13,
     marginTop: 8,
+  },
+  importButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    borderRadius: 30,
+    padding: 15,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
 });

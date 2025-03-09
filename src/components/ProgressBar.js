@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, Platform } from 'react-native';
 
-const ProgressBar = ({ progress, width = '100%', className = '', color, enableAnimation = true }) => {
+const ProgressBar = ({ progress, width = '100%', className = '', color, enableAnimation = true, style }) => {
   // Animation value for the shimmer effect
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   
@@ -86,8 +86,7 @@ const ProgressBar = ({ progress, width = '100%', className = '', color, enableAn
   const progressWidth = `${Math.min(Math.max(progress, 0), 100)}%`;
 
   return (
-    <View style={[styles.container, { width }]} className={className}>
-      {/* Base bar with 3D effect */}
+    <View style={[styles.container, style]}>
       <View style={styles.baseBar}>
         <Animated.View 
           style={[
@@ -95,23 +94,21 @@ const ProgressBar = ({ progress, width = '100%', className = '', color, enableAn
             { 
               width: progressWidth,
               backgroundColor: barColor,
-              opacity: enableAnimation ? neonOpacity : 1, // Apply fading animation to bar only when enabled
+              opacity: enableAnimation ? neonOpacity : 1,
               ...(Platform.OS !== 'web' ? {
                 transform: enableAnimation ? [{ scaleY: pulseAnim }] : []
               } : {}),
               ...(Platform.OS === 'web' ? {
-                background: color 
+                backgroundColor: color || '#007AFF',
+                backgroundImage: color 
                   ? `linear-gradient(90deg, ${color} 0%, ${color} 100%)`
                   : 'linear-gradient(90deg, #007AFF 0%, #8E54E9 100%)'
               } : {})
             }
           ]} 
         >
-          {/* 3D effect highlight */}
-          <View style={styles.highlight} />
-          
-          {/* 3D effect shadow */}
-          <View style={styles.shadow} />
+          <View key="highlight-blue" style={styles.highlight}/>
+          <View key="shadow-blue" style={styles.shadow}/>
         </Animated.View>
         <Animated.View 
           style={[
@@ -125,9 +122,9 @@ const ProgressBar = ({ progress, width = '100%', className = '', color, enableAn
             }
           ]}
         >
-          {/* Shimmer overlay - only on red bar */}
-          {enableAnimation && (
+          {enableAnimation ? (
             <Animated.View 
+              key="shimmer"
               style={[
                 styles.shimmer,
                 Platform.OS === 'web' ? {
@@ -136,6 +133,7 @@ const ProgressBar = ({ progress, width = '100%', className = '', color, enableAn
                   top: 0,
                   height: '100%',
                   width: '30%',
+                  backgroundColor: 'transparent',
                   backgroundImage: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
                 } : {
                   transform: [{ translateX: shimmerTranslate }],
@@ -147,13 +145,9 @@ const ProgressBar = ({ progress, width = '100%', className = '', color, enableAn
                 }
               ]}
             />
-          )}
-          
-          {/* Add 3D effect highlight to red bar */}
-          <View style={styles.highlight} />
-          
-          {/* Add 3D effect shadow to red bar */}
-          <View style={styles.shadow} />
+          ) : null}
+          <View key="highlight-red" style={styles.highlight}/>
+          <View key="shadow-red" style={styles.shadow}/>
         </Animated.View>
       </View>
     </View>
@@ -196,7 +190,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...Platform.select({
       web: {
-        background: 'linear-gradient(90deg, #007AFF 0%, #8E54E9 100%)'
+        backgroundColor: '#007AFF',
+        backgroundImage: 'linear-gradient(90deg, #007AFF 0%, #8E54E9 100%)'
       },
       default: {
         backgroundColor: '#007AFF'
@@ -215,6 +210,7 @@ const styles = StyleSheet.create({
         top: 0,
         height: '100%',
         width: '30%',
+        backgroundColor: 'transparent',
         backgroundImage: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
       }
     })

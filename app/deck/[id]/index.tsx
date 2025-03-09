@@ -5,14 +5,12 @@ import { useDeck } from '../../../src/hooks/useDeck';
 import { useDecks } from '../../../src/hooks/useDecks';
 import ImportCSV from '../../../src/components/ImportCSV';
 import { auth } from '../../../src/firebase/config';
-import { isAdmin } from '../../../src/utils/authUtils';
 import { ref, set, push, onValue, off } from 'firebase/database';
 import { db } from '../../../src/firebase/config';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeInRight, Layout } from 'react-native-reanimated';
 import LogoHeader from '../../../src/components/LogoHeader';
-import AdminDeckControls from '../../../src/components/AdminDeckControls';
 import TabBarIcon from '../../../src/components/TabBarIcon';
 
 
@@ -199,17 +197,10 @@ export default function DeckScreen() {
               if (confirmDelete) {
                 (async () => {
                   try {
-                    console.log('Attempting to delete card:', item.id);
-                    const success = await deleteCard(item.id);
-                    if (success) {
-                      console.log('Card deleted successfully in UI');
-                    } else {
-                      console.error('Failed to delete card');
-                      window.alert('Failed to delete card. Please try again.');
-                    }
+                    await deleteCard(item.id);
                   } catch (error) {
-                    console.error('Error in delete card process:', error);
-                    window.alert('An unexpected error occurred. Please try again.');
+                    console.error('Error deleting card:', error);
+                    alert('Failed to delete card. Please try again.');
                   }
                 })();
               }
@@ -218,26 +209,16 @@ export default function DeckScreen() {
                 'Delete Card',
                 'Are you sure you want to delete this card?',
                 [
-                  {
-                    text: 'Cancel',
-                    style: 'cancel'
-                  },
+                  { text: 'Cancel', style: 'cancel' },
                   {
                     text: 'Delete',
                     style: 'destructive',
                     onPress: async () => {
                       try {
-                        console.log('Attempting to delete card:', item.id);
-                        const success = await deleteCard(item.id);
-                        if (success) {
-                          console.log('Card deleted successfully in UI');
-                        } else {
-                          console.error('Failed to delete card');
-                          Alert.alert('Error', 'Failed to delete card. Please try again.');
-                        }
+                        await deleteCard(item.id);
                       } catch (error) {
-                        console.error('Error in delete card process:', error);
-                        Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                        console.error('Error deleting card:', error);
+                        Alert.alert('Error', 'Failed to delete card. Please try again.');
                       }
                     }
                   }
@@ -246,7 +227,7 @@ export default function DeckScreen() {
             }
           }}
         >
-          <MaterialIcons name="close" size={14} color={Colors.textSecondary} />
+          <MaterialIcons name="delete" size={20} color="#ef4444" />
         </TouchableOpacity>
       )}
       <Text style={styles.cardFront}>{item.front}</Text>
@@ -254,7 +235,7 @@ export default function DeckScreen() {
     </Animated.View>
   );
 
-  const showForkButton = deck.isShared && !isCreator;
+  const showForkButton = !isCreator && deck.isShared;
 
   return (
     <View style={styles.container}>
@@ -310,11 +291,6 @@ export default function DeckScreen() {
           onRefresh={onRefresh}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Image
-                source={require('../../../assets/images/flashcard_logo.jpeg')}
-                style={styles.emptyImage}
-                resizeMode="contain"
-              />
               <Text style={styles.emptyText}>No cards yet</Text>
               <Text style={styles.emptySubText}>Add your first card to get started</Text>
             </View>
@@ -349,7 +325,6 @@ export default function DeckScreen() {
             )}
           </Animated.View>
         )}
-        {isAdmin(auth.currentUser) && deck && <AdminDeckControls deck={deck} refreshDeck={refreshDeck} />}
       </LinearGradient>
     </View>
   );
@@ -521,12 +496,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 5,
-  },
-  emptyImage: {
-    width: 80,
-    height: 80,
-    marginBottom: 20,
-    borderRadius: 10,
   },
   errorContainer: {
     flex: 1,
@@ -813,12 +782,6 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 8,
     textAlign: 'center',
-  },
-  emptyImage: {
-    width: 90,
-    height: 90,
-    marginBottom: 20,
-    borderRadius: 10,
   },
   errorContainer: {
     flex: 1,

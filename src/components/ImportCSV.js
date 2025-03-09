@@ -1,17 +1,10 @@
-
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { ref, get, update } from 'firebase/database';
 import { auth, db } from '../firebase/config';
 import { LinearGradient } from 'expo-linear-gradient';
-import { isAdmin } from '../utils/authUtils';
 
 const ImportCSV = ({ deckId, onImportComplete }) => {
-  // If not admin, don't render anything
-  if (!isAdmin()) {
-    return null;
-  }
-  
   const [csvText, setCsvText] = useState('');
   const [showInput, setShowInput] = useState(false);
 

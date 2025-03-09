@@ -228,11 +228,6 @@ export default function SetScreen() {
         } : {}
       ]}
     >
-      <Image 
-        source={require('../../assets/images/1630603219122.jpeg')} 
-        style={styles.backgroundLogo}
-        resizeMode="contain"
-      />
       <FlatList
         key={`sets-list-${decks?.length || 0}`}
         data={decks}

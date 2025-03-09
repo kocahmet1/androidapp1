@@ -1,21 +1,15 @@
 import React from 'react';
-import { View, Image, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors } from '../constants/Colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function LogoHeader({ title, showBackButton = false, showLogo = true, size = 'medium' }) {
+export default function LogoHeader({ title, showBackButton = false, showLogo = false, size = 'medium' }) {
   const router = useRouter();
 
   const goBack = () => {
     router.back();
-  };
-
-  const logoSize = {
-    small: 30,
-    medium: 40,
-    large: 60
   };
 
   return (
@@ -33,12 +27,6 @@ export default function LogoHeader({ title, showBackButton = false, showLogo = t
         )}
 
         <View style={styles.titleContainer}>
-          {showLogo && (
-            <Image 
-              source={require('../../assets/images/1630603219122.jpeg')} 
-              style={[styles.logo, { width: logoSize[size], height: logoSize[size] }]} 
-            />
-          )}
           <Text style={styles.title}>{title}</Text>
         </View>
 
@@ -79,10 +67,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
-  },
-  logo: {
-    borderRadius: 50,
-    marginRight: 10,
   },
   title: {
     fontSize: 20,

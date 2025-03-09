@@ -91,11 +91,6 @@ export default function Login() {
         entering={FadeInDown.duration(800).springify()} 
         style={styles.logoContainer}
       >
-        <Image 
-          source={require('../attached_assets/1630603219122.jpeg')} 
-          style={styles.logoImage}
-          resizeMode="contain"
-        />
         <Text style={styles.appName}>Flashcards</Text>
         <Text style={styles.appTagline}>Master your knowledge</Text>
       </Animated.View>
@@ -191,11 +186,6 @@ const styles = StyleSheet.create({
   logoContainer: {
     alignItems: 'center',
     marginBottom: 40,
-  },
-  logoImage: {
-    width: 120,
-    height: 120,
-    marginBottom: 16,
   },
   appName: {
     fontSize: 36,

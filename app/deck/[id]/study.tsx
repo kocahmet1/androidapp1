@@ -18,7 +18,7 @@ const Colors = {
   accent: '#3B82F6', // Blue
   surface: '#FFFFFF',
   surfaceAlt: '#F8F8FF',
-  backgroundGradient: ['#F9FAFB', '#F3F4F6'],
+  backgroundGradient: ['#f0e6e1', '#e6ded9'] as const, // Warm beige/cream background with tuple type
   cardShadow: '#000000',
   text: '#111827',
   textSecondary: '#4B5563',
@@ -75,22 +75,20 @@ export default function StudyScreen() {
       // await updateCardStatus(currentCard.id, true);
 
       if (currentIndex < studyCards.length - 1) {
-        // Immediately animate the next card to full size
+        // Immediately animate the next card to full size 
         nextCardScale.value = withSpring(1, { damping: 15, stiffness: 100 });
         nextCardOpacity.value = withTiming(1, { duration: 200 });
 
-        // Set the new index after a very short delay
-        // This ensures the next card is already visible and in position
+        // Set the new index immediately to avoid seeing the old card again
+        // No delay needed since we're fading out the previous card in the FlashCard component
+        setCurrentIndex(currentIndex + 1);
+        
+        // Reset the animation values for the next card in the stack with enough delay
+        // to ensure smooth transition without seeing the old card
         setTimeout(() => {
-          setCurrentIndex(currentIndex + 1);
-
-          // Reset the animation values for the next card in the stack after the index has changed
-          // This ensures we don't see the old card content again
-          setTimeout(() => {
-            nextCardScale.value = withTiming(0.92, { duration: 100 });
-            nextCardOpacity.value = withTiming(0.6, { duration: 100 });
-          }, 100);
-        }, 50);
+          nextCardScale.value = withTiming(0.92, { duration: 100 });
+          nextCardOpacity.value = withTiming(0.6, { duration: 100 });
+        }, 400); // Increased delay to ensure old card is fully gone
       } else {
         router.push({
           pathname: `/deck/${id}/results`,

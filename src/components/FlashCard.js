@@ -1,13 +1,20 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, Text, Animated, TouchableOpacity, Dimensions, useWindowDimensions, Platform, Image } from 'react-native';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { 
+  StyleSheet, 
+  View, 
+  Text, 
+  Animated, 
+  TouchableOpacity, 
+  TouchableWithoutFeedback,
+  Dimensions, 
+  Platform, 
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { PanGestureHandler } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Easing } from 'react-native';
 
-// Get initial dimensions but we'll use useWindowDimensions for responsive updates
-const { width: initialScreenWidth, height: initialScreenHeight } = Dimensions.get('window');
-
-// Modern color palette with vintage additions
+// Modern color palette with notebook additions
 const Colors = {
   primary: '#6366F1', // Indigo
   primaryLight: '#818CF8',
@@ -24,34 +31,60 @@ const Colors = {
   success: '#10B981', // Green
   error: '#EF4444', // Red
 
-  // Vintage card colors - adjusted for texture2.jpg
-  vintageFrontGradient: ['#e6e6e6', '#d0d0d0'], // Slightly adjusted for texture2.jpg
-  vintageBackGradient: ['#d8d8d8', '#c2c2c2'], // Slightly adjusted for texture2.jpg
-  vintageText: '#333333',
-  vintageAccent: '#666666',
-  vintageShadow: '#555555',
+  // Notebook card colors
+  notebookBackground: '#ffffff', // Pure white paper
+  notebookLine: '#6ba4d1', // Stronger, more vibrant blue for the lines
+  notebookText: '#333333',
+  notebookAccent: '#666666',
+  notebookShadow: '#555555',
+  notebookGradient: ['#ffffff', '#f9f9f9'], // Very subtle gradient for white notebook paper
+  
+  // Matching the study screen background
+  pageBackground: '#f0e6e1', // Warm beige/cream background to match study screen
 };
 
-const FlashCard = ({ front, back, onKnow, onSwipe, isKnown, showFront, sampleSentence }) => {
-  // Use window dimensions hook for responsive layout
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront, sampleSentence }, ref) => {
+  // Get window dimensions
+  const windowDimensions = Dimensions.get('window');
+  const windowWidth = windowDimensions.width;
+  const windowHeight = windowDimensions.height;
 
-  const [isFlipped, setIsFlipped] = useState(false);
-  const flipAnim = useRef(new Animated.Value(0)).current;
+  // Initialize state
+  const [isFlipped, setIsFlipped] = useState(!showFront);
+  const [tickActive, setTickActive] = useState(isKnown);
+  const [lightingPosition, setLightingPosition] = useState('50% 50%');
+  
+  // Animation values - fix the initial values based on showFront
+  const flipAnim = useRef(new Animated.Value(showFront ? 0 : 180)).current;
+  const tiltX = useRef(new Animated.Value(0)).current;
+  const tiltY = useRef(new Animated.Value(0)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
-  const tickScale = useRef(new Animated.Value(1)).current;
-  const [tickActive, setTickActive] = useState(isKnown);
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const hintOpacity = useRef(new Animated.Value(1)).current;
 
-  // Add tilt animation values for 3D effect
-  const tiltX = useRef(new Animated.Value(0)).current;
-  const tiltY = useRef(new Animated.Value(0)).current;
+  // Update dimensions on window resize (web only)
+  const [windowDimensionsState, setWindowDimensionsState] = useState(windowDimensions);
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const handleResize = () => {
+        setWindowDimensionsState(Dimensions.get('window'));
+      };
+      
+      // Add event listener for window resize
+      window.addEventListener('resize', handleResize);
+      
+      // Cleanup
+      return () => {
+        window.removeEventListener('resize', handleResize);
+      };
+    }
+  }, []);
 
   // Calculate responsive font size based on screen width
   const getResponsiveFontSize = (size) => {
-    const scaleFactor = Math.min(screenWidth / 375, 1.3); // 375 is baseline width (iPhone 6/7/8)
+    const scaleFactor = Math.min(windowWidth / 375, 1.3); // 375 is baseline width (iPhone 6/7/8)
     return Math.round(size * scaleFactor);
   };
 
@@ -112,287 +145,424 @@ const FlashCard = ({ front, back, onKnow, onSwipe, isKnown, showFront, sampleSen
 
   // Handle manual flipping when card is tapped
   const handleFlip = () => {
-    const newFlipValue = isFlipped ? 0 : 1;
-
+    const newFlipValue = isFlipped ? 0 : 180;
+    
     // Flip animation with improved physics
     Animated.spring(flipAnim, {
       toValue: newFlipValue,
-      friction: 6, // Lower friction for more bounce
-      tension: 15, // Increased tension for more snap
-      useNativeDriver: true,
+      friction: 8,
+      tension: 30,
+      useNativeDriver: Platform.OS !== 'web', // Use native driver except on web
     }).start();
-
-    // Enhanced scale effect during flip
-    Animated.sequence([
-      Animated.timing(scale, {
-        toValue: 0.92, // Slightly smaller scale for more dramatic effect
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scale, {
-        toValue: 1,
-        friction: 5, // Lower friction for more bounce
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    // Add a subtle vertical movement during flip for more realism
-    Animated.sequence([
-      Animated.timing(translateY, {
-        toValue: -10, // Move up slightly
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateY, {
-        toValue: 0,
-        friction: 5,
-        tension: 20,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    // Update flip state
+    
+    // Update state after animation begins
     setIsFlipped(!isFlipped);
+    
+    // Fade in the hint after flipping
+    Animated.sequence([
+      Animated.delay(150),
+      Animated.timing(hintOpacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    ]).start();
   };
 
-  // Handle gesture for swiping
+  // Handle gesture for swiping with proper detection and automatic callbacks
   const handleGesture = Animated.event(
     [{ nativeEvent: { translationX: translateX, translationY: translateY } }],
     { 
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== 'web',
       listener: ({ nativeEvent }) => {
-        // Calculate tilt based on finger position
-        const { locationX, locationY } = nativeEvent;
-        if (locationX && locationY) {
-          // Calculate tilt relative to the center of the card
-          const tiltXValue = (locationY / screenHeight - 0.5) * 15; // -7.5 to 7.5 degrees
-          const tiltYValue = (locationX / screenWidth - 0.5) * -15; // 7.5 to -7.5 degrees
-
-          // Animate to the new tilt values
-          Animated.spring(tiltX, {
-            toValue: tiltXValue,
-            friction: 10,
-            tension: 40,
-            useNativeDriver: true,
-          }).start();
-
-          Animated.spring(tiltY, {
-            toValue: tiltYValue,
-            friction: 10,
-            tension: 40,
-            useNativeDriver: true,
-          }).start();
+        // Dynamic tilt effect based on card movement
+        const { translationX, translationY } = nativeEvent;
+        
+        if (translationX) {
+          // Determine direction for proper corner pivot
+          const direction = translationX > 0 ? 'right' : 'left';
+          
+          // More rotation for more dramatic swivel during gestures
+          const tiltXValue = (translationX / windowWidth) * 25; // Increased from 10 to 25
+          tiltX.setValue(tiltXValue);
+          
+          // Reduced Y tilt as we want to focus on the swivel around Z axis
+          tiltY.setValue(translationY / windowHeight * -2);
+          
+          // Update transform origin reference for web
+          if (Platform.OS === 'web') {
+            setTransformOrigin(direction === 'right' ? 'bottom right' : 'bottom left');
+          }
         }
       }
     }
   );
 
-  // Handle swipe end
-  const handleSwipeEnd = ({ nativeEvent }) => {
-    // Reset tilt values
-    Animated.parallel([
-      Animated.spring(tiltX, {
-        toValue: 0,
-        friction: 5,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-      Animated.spring(tiltY, {
-        toValue: 0,
-        friction: 5,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    const { translationX, translationY, velocityX } = nativeEvent;
-
-    // Use velocity to determine if it was a quick flick
-    const isQuickFlick = Math.abs(velocityX) > 800;
-
-    // Determine swipe direction and if it meets the threshold
-    const direction = translationX > 0 ? 'right' : 'left';
-    const swipeThreshold = isQuickFlick ? screenWidth * 0.15 : screenWidth * 0.25;
-
-    if (Math.abs(translationX) > swipeThreshold) {
-      // Calculate exit position based on direction
-      const exitX = direction === 'right' ? screenWidth * 1.2 : -screenWidth * 1.2;
-      const exitY = screenHeight * 0.3; // Upward movement for corner pivot
-
-      // First fade out completely
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 100, // Very fast fade out
-        useNativeDriver: true,
-      }).start(() => {
-        // After the card is invisible, immediately call onSwipe to change the card
-        // This ensures the old card content is never seen again
-        onSwipe(direction);
-
-        // Reset the position off-screen (this won't be visible since opacity is 0)
-        translateX.setValue(exitX);
-        translateY.setValue(-exitY);
-
-        // After a small delay, reset the position for the new card
-        setTimeout(() => {
-          translateX.setValue(0);
-          translateY.setValue(0);
-          scale.setValue(0.95); // Slightly smaller to start the entry animation
-
-          // The fade in will happen in the useEffect when the new card is rendered
-        }, 10);
-      });
-    } else {
-      // Spring back animation if swipe threshold not met
-      Animated.parallel([
-        Animated.spring(translateX, {
+  // Handle the end of a swipe gesture with improved detection - optimized for seamless experience
+  const handleGestureStateChange = (event) => {
+    if (event.nativeEvent.state === 4 || event.nativeEvent.state === 5) { // State.END or CANCELLED
+      const { translationX, velocityX } = event.nativeEvent;
+      
+      // More sensitive threshold for left swipes (next card) to make progression more seamless
+      // This creates an automated, effortless experience requiring minimal user effort
+      const leftSwipeThreshold = Math.abs(velocityX) > 500 ? windowWidth * 0.05 : windowWidth * 0.15;
+      const rightSwipeThreshold = Math.abs(velocityX) > 800 ? windowWidth * 0.1 : windowWidth * 0.25;
+      
+      // Determine direction and apply appropriate threshold
+      const direction = translationX > 0 ? 'right' : 'left';
+      const threshold = direction === 'left' ? leftSwipeThreshold : rightSwipeThreshold;
+      
+      if (Math.abs(translationX) > threshold) {
+        // Faster animation for left swipes to make the experience feel more responsive
+        const duration = direction === 'left' ? 300 : 350; // Increased duration for more visible swivel
+        
+        // Immediately fade out the card as it swipes away
+        Animated.timing(fadeAnim, {
           toValue: 0,
-          friction: 5,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-        Animated.spring(translateY, {
-          toValue: 0,
-          friction: 5,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-      ]).start();
+          duration: duration * 0.6, // Fade out faster than the swipe animation
+          useNativeDriver: Platform.OS !== 'web',
+        }).start();
+        
+        // Enhanced Tinder-like pivot effect from the bottom corner with progressive rotation
+        Animated.parallel([
+          // Move card horizontally with easing for more natural movement
+          Animated.timing(translateX, {
+            toValue: direction === 'left' ? -windowWidth * 1.5 : windowWidth * 1.5, // Move further for more dramatic exit
+            duration: duration,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          
+          // More dramatic rotation around Z-axis for authentic Tinder effect
+          Animated.timing(tiltX, {
+            toValue: direction === 'left' ? -80 : 80, // Greatly increased rotation for more swivel
+            duration: duration,
+            easing: Easing.bezier(0.42, 0, 0.58, 1), // Added easing for more natural swivel
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          
+          // Vertical movement that complements the swivel
+          Animated.timing(translateY, {
+            toValue: -30, // Changed to negative to move up slightly as it rotates out
+            duration: duration,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          
+          // Progressive scaling to enhance 3D effect during swivel
+          Animated.timing(scale, {
+            toValue: 0.8,
+            duration: duration,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+        ]).start(() => {
+          // Keep the card invisible until the parent component updates
+          // Don't reset position values that would make the card momentarily visible
+          
+          // Call the parent component's swipe handler with the direction
+          if (onSwipe) {
+            onSwipe(direction);
+          }
+          
+          // Only reset position values AFTER a delay to ensure the next card is in view
+          setTimeout(() => {
+            translateX.setValue(0);
+            translateY.setValue(0);
+            tiltX.setValue(0);
+            scale.setValue(1);
+            fadeAnim.setValue(1); // Reset opacity for the next card
+          }, 300); // Delay longer than the parent's state update
+        });
+      } else {
+        // Return to center with spring animation
+        Animated.parallel([
+          Animated.spring(translateX, {
+            toValue: 0,
+            friction: 5,
+            tension: 40,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          Animated.spring(translateY, {
+            toValue: 0,
+            friction: 5,
+            tension: 40,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          // Reset tilt back to neutral
+          Animated.spring(tiltX, {
+            toValue: 0,
+            friction: 5,
+            tension: 40,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          Animated.spring(tiltY, {
+            toValue: 0,
+            friction: 5,
+            tension: 40,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          // Reset scale
+          Animated.spring(scale, {
+            toValue: 1,
+            friction: 5,
+            tension: 40,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+        ]).start();
+      }
     }
   };
 
   // Handle marking card as known
   const handleKnow = () => {
-    // Toggle the tick state
+    // Toggle the tick state and trigger animation only when marking as known
     setTickActive(current => {
       const newState = !current;
-      // Call onKnow when marking as known or unmarking it
+      
+      // Call onKnow callback
       onKnow(newState);
+      
+      // If marking as known (not unmarking), trigger automatic left swipe
+      if (newState === true) {
+        // Small delay to allow the tick animation to be visible first
+        setTimeout(() => {
+          // Trigger the same animation as a left swipe
+          // Immediately fade out the card as it swipes away
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: 350, // Increased from 180 for slower fade out
+            useNativeDriver: Platform.OS !== 'web',
+          }).start();
+          
+          // Enhanced Tinder-like pivot effect from the bottom corner
+          Animated.parallel([
+            // Move card horizontally with easing for natural movement
+            Animated.timing(translateX, {
+              toValue: -windowWidth * 1.5, // Move left (same as left swipe)
+              duration: 650, // Increased from 300 for much slower animation
+              useNativeDriver: Platform.OS !== 'web',
+            }),
+            
+            // Rotation around Z-axis for authentic Tinder effect
+            Animated.timing(tiltX, {
+              toValue: -80, // Same rotation as left swipe
+              duration: 650, // Increased from 300 for much slower animation
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Adjusted for slower, more controlled easing
+              useNativeDriver: Platform.OS !== 'web',
+            }),
+            
+            // Vertical movement that complements the swivel
+            Animated.timing(translateY, {
+              toValue: -30,
+              duration: 650, // Increased from 300 for much slower animation
+              useNativeDriver: Platform.OS !== 'web',
+            }),
+            
+            // Progressive scaling
+            Animated.timing(scale, {
+              toValue: 0.8,
+              duration: 650, // Increased from 300 for much slower animation
+              useNativeDriver: Platform.OS !== 'web',
+            }),
+          ]).start(() => {
+            // Call onSwipe with 'left' direction to trigger next card
+            if (onSwipe) {
+              onSwipe('left');
+            }
+            
+            // Only reset position values AFTER a delay
+            setTimeout(() => {
+              translateX.setValue(0);
+              translateY.setValue(0);
+              tiltX.setValue(0);
+              scale.setValue(1);
+              fadeAnim.setValue(1); // Reset opacity for next card
+            }, 300);
+          });
+        }, 250); // Delay to see the check mark animation first
+      }
+      
       return newState;
     });
 
-    // Animation for tick
+    // Animation for tick - make it more noticeable
     Animated.sequence([
-      Animated.timing(tickScale, {
-        toValue: 1.5,
+      Animated.timing(hintOpacity, {
+        toValue: 1.8, // Increased from 1.5 for more visible effect
         duration: 200,
-        useNativeDriver: Platform.OS !== 'web', // Don't use native driver on web
+        useNativeDriver: Platform.OS !== 'web',
       }),
-      Animated.timing(tickScale, {
+      Animated.timing(hintOpacity, {
         toValue: 1,
         duration: 200,
-        useNativeDriver: Platform.OS !== 'web', // Don't use native driver on web
+        useNativeDriver: Platform.OS !== 'web',
       })
     ]).start();
   };
 
-  // Front to back rotation
+  // Handler refs
+  const panResponderRef = useRef(null);
+  
+  // Simplified lighting effect for web - no animation tracking needed
+  const renderLightingEffect = () => {
+    if (Platform.OS !== 'web') return null;
+    
+    return (
+      <div 
+        key="lighting-effect"
+        className="card-lighting-effect"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          opacity: 0.2,
+          background: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0) 75%)',
+          pointerEvents: 'none',
+        }} 
+      />
+    );
+  };
+
+  const renderEmbossEffect = () => {
+    if (Platform.OS !== 'web') return null;
+    
+    return (
+      <View 
+        key="emboss-effect"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          opacity: 0.35,
+          shadowColor: 'rgba(255,255,255,0.8)',
+          shadowOffset: {
+            width: 0,
+            height: 1,
+          },
+          shadowOpacity: 0.15,
+          shadowRadius: 1,
+        }}
+      />
+    );
+  };
+
+  // Function to render dynamic notebook lines for React Native
+  const renderNotebookLines = () => {
+    // Calculate how many lines we need based on card height
+    const estimatedCardHeight = windowHeight * 0.7; // Same calculation used for cardHeight
+    const lineSpacing = 35; // Increased from 25px to 35px for more space between lines
+    const lineCount = Math.ceil(estimatedCardHeight / lineSpacing) + 5; // Add extra lines to ensure coverage
+    const lines = [];
+    
+    for (let i = 0; i < lineCount; i++) {
+      lines.push(
+        <View 
+          key={`line-${i}`} 
+          style={[
+            styles.notebookLine, 
+            { top: (i + 1) * lineSpacing } // Position each line with increased spacing
+          ]} 
+        />
+      );
+    }
+    
+    return lines;
+  };
+
+  // State for transform origin (for web platform)
+  const [transformOrigin, setTransformOrigin] = useState('bottom left');
+
+  useImperativeHandle(ref, () => ({
+    handleFlip,
+    handleKnow,
+  }));
+
+  // Front to back rotation - fixed interpolation ranges
   const frontAnimatedStyle = {
     transform: [
-      { perspective: 2000 }, // Increased perspective for more dramatic 3D effect
-      { rotateY: flipAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['0deg', '180deg']
-      })},
-      { scale },
+      ...(Platform.OS === 'web' ? [
+        { 
+          rotateY: flipAnim.interpolate({
+            inputRange: [0, 180],
+            outputRange: ['0deg', '180deg'],
+          }) 
+        }
+      ] : [
+        { 
+          rotateY: flipAnim.interpolate({
+            inputRange: [0, 180],
+            outputRange: ['0deg', '180deg'],
+          }) 
+        }
+      ]),
     ],
-    backfaceVisibility: 'hidden',
     opacity: flipAnim.interpolate({
-      inputRange: [0.5, 0.5],
-      outputRange: [1, 0]
-    })
+      inputRange: [90, 91],
+      outputRange: [1, 0],
+    }),
   };
 
-  // Back to front rotation
   const backAnimatedStyle = {
     transform: [
-      { perspective: 2000 }, // Increased perspective for more dramatic 3D effect
-      { rotateY: flipAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['180deg', '360deg']
-      })},
-      { scale },
+      ...(Platform.OS === 'web' ? [
+        { 
+          rotateY: flipAnim.interpolate({
+            inputRange: [0, 180],
+            outputRange: ['180deg', '360deg'],
+          }) 
+        }
+      ] : [
+        { 
+          rotateY: flipAnim.interpolate({
+            inputRange: [0, 180],
+            outputRange: ['180deg', '360deg'],
+          }) 
+        }
+      ]),
     ],
-    backfaceVisibility: 'hidden',
     opacity: flipAnim.interpolate({
-      inputRange: [0.5, 0.5],
-      outputRange: [0, 1]
-    })
+      inputRange: [89, 90],
+      outputRange: [0, 1],
+    }),
   };
 
-  // Card movement animation with bottom-corner pivot effect
+  // Transformations for the card to create enhanced Tinder-like pivot from bottom corner
+  const getCardTransform = () => {
+    // Interactive rotation that responds to even small movements for a more fluid feel
+    return [
+      { perspective: 1500 }, // Increased for more dramatic effect
+      
+      // The order of these transforms is crucial for the Tinder effect
+      { translateX },
+      { translateY },
+      
+      // Add slight Y rotation for 3D effect
+      { rotateY: tiltY.interpolate({
+        inputRange: [-20, 0, 20],
+        outputRange: ['10deg', '0deg', '-10deg']
+      })},
+      
+      // Primary Z rotation for the swivel effect - more responsive to movement
+      { rotateZ: tiltX.interpolate({
+        inputRange: [-100, 0, 100],
+        outputRange: ['-100deg', '0deg', '100deg'] // Greatly increased range for dramatic swivel
+      })},
+      
+      // Scale applied last to maintain proper perspective during rotation
+      { scale },
+    ];
+  };
+
   const cardAnimatedStyle = {
     // Single transform array with all transformations
-    transform: [
-      // Apply tilt effects first
-      {
-        rotateX: tiltX.interpolate({
-          inputRange: [-15, 15],
-          outputRange: ['15deg', '-15deg'],
-          extrapolate: 'clamp',
-        }),
-      },
-      {
-        rotateY: tiltY.interpolate({
-          inputRange: [-15, 15],
-          outputRange: ['-15deg', '15deg'],
-          extrapolate: 'clamp',
-        }),
-      },
-
-      // First apply the raw horizontal translation for gesture tracking
-      { translateX },
-
-      // Then adjust vertical position based on horizontal movement direction
-      // This simulates the card being anchored at the bottom corners
-      {
-        translateY: Animated.add(
-          translateY,
-          translateX.interpolate({
-            inputRange: [-screenWidth, 0, screenWidth],
-            outputRange: [-screenHeight * 0.3, 0, -screenHeight * 0.3], // Increased movement for more dramatic effect
-            extrapolate: 'clamp',
-          })
-        ),
-      },
-
-      // Add rotation that increases with movement
-      // The rotation is more pronounced for a realistic flick effect
-      {
-        rotate: translateX.interpolate({
-          inputRange: [-screenWidth, -screenWidth * 0.5, 0, screenWidth * 0.5, screenWidth],
-          outputRange: ['-70deg', '-40deg', '0deg', '40deg', '70deg'], // More rotation for flick effect
-          extrapolate: 'clamp',
-        }),
-      },
-
-      // Add subtle Z rotation for more realism
-      {
-        rotateZ: translateX.interpolate({
-          inputRange: [-screenWidth, 0, screenWidth],
-          outputRange: ['5deg', '0deg', '-5deg'],
-          extrapolate: 'clamp',
-        }),
-      },
-
-      // Finally apply scale
-      { scale },
-
-      // Add a subtle perspective shift based on swipe direction
-      {
-        perspective: translateX.interpolate({
-          inputRange: [-screenWidth, 0, screenWidth],
-          outputRange: [1500, 2000, 1500],
-          extrapolate: 'clamp',
-        }),
-      },
-    ],
+    transform: getCardTransform(),
     opacity: fadeAnim,
   };
 
   const tickAnimatedStyle = {
-    transform: [{ scale: tickScale }]
+    transform: [{ scale: hintOpacity }]
   };
 
   const hintAnimatedStyle = {
@@ -403,134 +573,66 @@ const FlashCard = ({ front, back, onKnow, onSwipe, isKnown, showFront, sampleSen
     })
   };
 
-  // Import the texture image with more specific path
-  const paperTexture = require('../../assets/images/textures/texture2.jpg');
-
-  // Add a second texture for more depth (using the same image but with different styling)
-  const depthTexture = require('../../assets/images/textures/texture2.jpg');
-
-  // Add lighting effect that moves with the card tilt
-  const lightingOpacity = tiltX.interpolate({
-    inputRange: [-15, 0, 15],
-    outputRange: [0.15, 0.25, 0.45], // Adjusted for texture2.jpg
-    extrapolate: 'clamp',
-  });
-
-  const lightingPosition = tiltY.interpolate({
-    inputRange: [-15, 0, 15],
-    outputRange: ['30%', '50%', '70%'], // Light position shifts with tilt
-    extrapolate: 'clamp',
-  });
+  // Calculate card dimensions - taller rectangle that covers more vertical space
+  const cardWidth = windowWidth * 0.9; // 90% of screen width
+  const cardHeight = windowHeight * 0.7; // Increased from 0.5 to 0.7 for a taller card
 
   return (
     <PanGestureHandler
       onGestureEvent={handleGesture}
-      onHandlerStateChange={handleSwipeEnd}
-    >
-      <Animated.View style={[styles.container, cardAnimatedStyle, {
-        width: screenWidth,
-        height: Math.min(screenHeight * 0.8, 600), // Limit max height for very tall screens
-      }]}>
-        <TouchableOpacity
-          style={styles.card}
+      onHandlerStateChange={handleGestureStateChange}
+      ref={panResponderRef}>
+      <Animated.View
+        style={[
+          styles.container,
+          {
+            width: cardWidth,
+            height: cardHeight,
+            opacity: fadeAnim,
+            transform: getCardTransform(),
+            ...(Platform.OS === 'web' ? {
+              // Set transform origin to bottom-left or bottom-right based on swipe direction
+              transformOrigin: transformOrigin,
+              perspective: '1000px', // Add a better perspective for more natural 3D effect
+              WebkitPerspective: '1000px', // Add webkit prefix for better browser support
+              backgroundColor: Colors.pageBackground, // Use the warm beige color
+            } : {})
+          },
+        ]}>
+        <TouchableOpacity 
+          activeOpacity={0.95}
           onPress={handleFlip}
-          activeOpacity={0.9}
-        >
+          style={styles.card}>
+          {/* Tick button for marking words as known */}
           <Animated.View style={[styles.tickButton, tickAnimatedStyle]}>
             <TouchableOpacity
               onPress={handleKnow}
               style={[
                 styles.tickButtonContainer, 
                 tickActive && styles.tickButtonActive
-              ]}
-            >
+              ]}>
               <MaterialIcons
                 name={tickActive ? "check-circle" : "check-circle-outline"}
-                size={Math.min(32, screenWidth * 0.08)} // Responsive icon size
+                size={Math.min(32, windowWidth * 0.08)}
                 color={tickActive ? Colors.success : Colors.hint}
                 style={styles.tickIcon}
               />
             </TouchableOpacity>
           </Animated.View>
-
+          
           {/* Front of card */}
-          <Animated.View style={[styles.cardFace, frontAnimatedStyle]}>
+          <Animated.View style={[styles.cardFace, styles.cardFront, frontAnimatedStyle]}>
             <LinearGradient
-              colors={Colors.vintageFrontGradient}
-              style={styles.gradientBackground}
-            >
-              {/* Base texture */}
-              <Image 
-                source={paperTexture} 
-                style={styles.textureImage} 
-                resizeMode="cover"
-              />
-              {/* Overlay texture with different blend mode for depth */}
-              <Image 
-                source={depthTexture} 
-                style={[styles.textureImage, { 
-                  opacity: 0.35, // Adjusted for texture2.jpg
-                  transform: [{ scale: 1.05 }],
-                  ...(Platform.OS === 'web' ? {
-                    filter: 'brightness(1.4) contrast(0.85) blur(1px)', // Adjusted for texture2.jpg
-                    mixBlendMode: 'overlay',
-                  } : {})
-                }]} 
-                resizeMode="cover"
-              />
-
-              {/* Dynamic lighting effect */}
-              {Platform.OS === 'web' && (
-                <Animated.View style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  opacity: lightingOpacity,
-                  backgroundImage: `radial-gradient(circle at ${lightingPosition} 50%, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0) 75%)`, // Adjusted for texture2.jpg
-                }} />
-              )}
-
-              {/* Emboss effect overlay */}
-              {Platform.OS === 'web' && (
-                <View style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  opacity: 0.35, // Adjusted for texture2.jpg
-                  boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.8), inset 0 -1px 1px rgba(0,0,0,0.15)', // Adjusted for texture2.jpg
-                }} />
-              )}
-
-              <View style={styles.cardBorder} />
-
-              {/* Edge lighting effect */}
-              {Platform.OS === 'web' && (
-                <Animated.View 
-                  style={[
-                    styles.edgeLighting,
-                    {
-                      opacity: tiltX.interpolate({
-                        inputRange: [-15, 0, 15],
-                        outputRange: [0.7, 0.2, 0.7],
-                        extrapolate: 'clamp',
-                      })
-                    }
-                  ]} 
-                />
-              )}
-              <Image
-                source={require('../../assets/images/1630603219122.jpeg')} //Corrected path
-                style={styles.logoWatermark}
-              />
+              colors={Colors.notebookGradient}
+              style={styles.gradientBackground}>
+              {renderLightingEffect()}
+              {renderEmbossEffect()}
+              <View style={styles.cardBorder}/>
+              {/* Render horizontal lines dynamically for React Native */}
+              {Platform.OS !== 'web' && renderNotebookLines()}
               <View style={styles.contentContainer}>
                 <Text style={[styles.text, { fontSize: getResponsiveFontSize(28) }]}>{front}</Text>
-                <Animated.Text style={[styles.hint, hintAnimatedStyle]}>
-                  Tap to flip
-                </Animated.Text>
+                <Animated.Text style={[styles.hint, hintAnimatedStyle]}>Tap to flip</Animated.Text>
               </View>
             </LinearGradient>
           </Animated.View>
@@ -538,87 +640,22 @@ const FlashCard = ({ front, back, onKnow, onSwipe, isKnown, showFront, sampleSen
           {/* Back of card */}
           <Animated.View style={[styles.cardFace, styles.cardBack, backAnimatedStyle]}>
             <LinearGradient
-              colors={Colors.vintageBackGradient}
-              style={styles.gradientBackground}
-            >
-              {/* Base texture */}
-              <Image 
-                source={paperTexture} 
-                style={styles.textureImage} 
-                resizeMode="cover"
-              />
-              {/* Overlay texture with different blend mode for depth */}
-              <Image 
-                source={depthTexture} 
-                style={[styles.textureImage, { 
-                  opacity: 0.35, // Adjusted for texture2.jpg
-                  transform: [{ scale: 1.05 }],
-                  ...(Platform.OS === 'web' ? {
-                    filter: 'brightness(1.4) contrast(0.85) blur(1px)', // Adjusted for texture2.jpg
-                    mixBlendMode: 'overlay',
-                  } : {})
-                }]} 
-                resizeMode="cover"
-              />
-
-              {/* Dynamic lighting effect */}
-              {Platform.OS === 'web' && (
-                <Animated.View style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  opacity: lightingOpacity,
-                  backgroundImage: `radial-gradient(circle at ${lightingPosition} 50%, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0) 75%)`, // Adjusted for texture2.jpg
-                }} />
-              )}
-
-              {/* Emboss effect overlay */}
-              {Platform.OS === 'web' && (
-                <View style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  opacity: 0.35, // Adjusted for texture2.jpg
-                  boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.8), inset 0 -1px 1px rgba(0,0,0,0.15)', // Adjusted for texture2.jpg
-                }} />
-              )}
-
-              <View style={styles.cardBorder} />
-
-              {/* Edge lighting effect */}
-              {Platform.OS === 'web' && (
-                <Animated.View 
-                  style={[
-                    styles.edgeLighting,
-                    {
-                      opacity: tiltX.interpolate({
-                        inputRange: [-15, 0, 15],
-                        outputRange: [0.7, 0.2, 0.7],
-                        extrapolate: 'clamp',
-                      })
-                    }
-                  ]} 
-                />
-              )}
-              <Image
-                source={require('../../assets/images/1630603219122.jpeg')} //Corrected path
-                style={styles.logoWatermark}
-              />
+              colors={Colors.notebookGradient}
+              style={styles.gradientBackground}>
+              {renderLightingEffect()}
+              {renderEmbossEffect()}
+              <View style={styles.cardBorder}/>
+              {/* Render horizontal lines dynamically for React Native */}
+              {Platform.OS !== 'web' && renderNotebookLines()}
               <View style={styles.contentContainer}>
                 <Text style={[styles.text, { fontSize: getResponsiveFontSize(28) }]}>{back}</Text>
-                {sampleSentence && (
-                  <View style={styles.sampleSentenceContainer}>
+                {sampleSentence ? (
+                  <View key="sample-sentence" style={styles.sampleSentenceContainer}>
                     <Text style={styles.sampleSentenceLabel}>Sample:</Text>
                     <Text style={styles.sampleSentenceText}>{sampleSentence}</Text>
                   </View>
-                )}
-                <Animated.Text style={[styles.hint, hintAnimatedStyle]}>
-                  Tap to flip back
-                </Animated.Text>
+                ) : null}
+                <Animated.Text style={[styles.hint, hintAnimatedStyle]}>Tap to flip back</Animated.Text>
               </View>
             </LinearGradient>
           </Animated.View>
@@ -626,40 +663,83 @@ const FlashCard = ({ front, back, onKnow, onSwipe, isKnown, showFront, sampleSen
       </Animated.View>
     </PanGestureHandler>
   );
-};
-
+});
 
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
-    // width and height are now applied dynamically based on screen dimensions
+    position: 'relative',
+    backgroundColor: Colors.pageBackground,
+    justifyContent: 'center',
+    perspective: 1000, // Need explicit value for Android
+    marginVertical: 5,
+    shadowColor: 'transparent',
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+  },
+  cardContainer: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    backgroundColor: Colors.pageBackground,
+    borderWidth: 0,
+    borderRadius: 0,
+  },
+  outerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: Colors.pageBackground,
+    zIndex: -1, // Behind card
+    borderWidth: 0,
+    borderRadius: 0,
   },
   card: {
     flex: 1,
-    margin: 16,
-    borderRadius: 16, // Slightly less rounded for vintage look
-    elevation: 12, // Increased elevation
-    shadowColor: Colors.vintageShadow,
+    borderRadius: 16, // Restore rounded corners for card only
+    overflow: 'hidden',
+    maxWidth: '100%',
+    maxHeight: '100%',
+    shadowColor: 'transparent',
     shadowOffset: {
       width: 0,
-      height: 12, // Increased shadow height
+      height: 0,
     },
-    shadowOpacity: 0.45, // Increased shadow opacity
-    shadowRadius: 20, // Increased shadow radius
-    overflow: 'hidden', // For the gradient to stay within borders
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+    backgroundColor: Colors.pageBackground,
+    borderWidth: 0,
     ...(Platform.OS === 'web' ? {
-      boxShadow: '0 12px 24px rgba(0, 0, 0, 0.3), 0 6px 8px rgba(0, 0, 0, 0.2), 0 1px 1px rgba(255, 255, 255, 0.5) inset', // Enhanced shadow for web with inner highlight
+      transformStyle: 'preserve-3d', // Ensure child elements preserve 3D
+      boxShadow: 'none' // Remove box shadow on web
     } : {}),
   },
   gradientBackground: {
     flex: 1,
     borderRadius: 16,
-    ...(Platform.OS === 'web' ? {
-      // Add subtle lighting effect for 3D appearance
-      backgroundImage: 'linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.15) 100%)',
-    } : {}),
+    backgroundColor: Colors.notebookBackground,
+    overflow: 'hidden',
+    shadowColor: Colors.cardShadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
   },
-  textureImage: {
+  notebookLines: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -667,24 +747,32 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: '100%',
     height: '100%',
-    opacity: 1.0, // Full opacity for maximum visibility
-    ...(Platform.OS === 'web' ? {
-      filter: 'grayscale(30%) brightness(1.1) contrast(1.2)', // Less grayscale, more contrast
-      mixBlendMode: 'soft-light', // Changed blend mode for better texture visibility
-    } : {}),
+    borderTopWidth: 0,
+    borderColor: 'transparent',
+    ...Platform.select({
+      web: {
+        backgroundImage: `repeating-linear-gradient(0deg, transparent 0px, transparent 34px, ${Colors.notebookLine} 34px, ${Colors.notebookLine} 35px)`,
+      },
+      default: {
+        // For React Native, we use actual View elements instead (see renderNotebookLines)
+      }
+    }),
   },
-  textureOverlay: {
+  notebookLine: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
+    height: 1,
+    backgroundColor: Colors.notebookLine,
+  },
+  notebookMargin: {
+    position: 'absolute',
+    top: 0,
     bottom: 0,
-    opacity: 0.08,
-    backgroundColor: '#000000',
-    // Create a noise pattern effect
-    backgroundImage: Platform.OS === 'web' ? 
-      'url("data:image/png;base64,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")' : 
-      undefined,
+    left: 36,
+    width: 1,
+    backgroundColor: 'transparent', // Remove red margin line
+    opacity: 0,
   },
   cardBorder: {
     position: 'absolute',
@@ -692,30 +780,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderWidth: 2, // Thicker border
-    borderColor: 'rgba(100, 100, 100, 0.4)', // Grey border color
-    borderRadius: 16,
-    ...(Platform.OS === 'web' ? {
-      boxShadow: 'inset 0 0 12px rgba(80, 80, 80, 0.3), 0 0 1px rgba(255, 255, 255, 0.8)', // Enhanced inner shadow for depth on web
-      borderTopColor: 'rgba(255, 255, 255, 0.6)', // Lighter top border for bevel effect
-      borderLeftColor: 'rgba(255, 255, 255, 0.5)', // Lighter left border for bevel effect
-      borderRightColor: 'rgba(80, 80, 80, 0.5)', // Darker right border for bevel effect
-      borderBottomColor: 'rgba(80, 80, 80, 0.6)', // Darker bottom border for bevel effect
-    } : {}),
-  },
-  edgeLighting: {
-    position: 'absolute',
-    top: -1,
-    left: -1,
-    right: -1,
-    bottom: -1,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    ...(Platform.OS === 'web' ? {
-      boxShadow: '0 0 5px 1px rgba(255, 255, 255, 0.6)', // Adjusted for texture2.jpg
-      pointerEvents: 'none', // Make sure it doesn't interfere with touch events
-    } : {}),
+    pointerEvents: 'none', // Don't intercept touches
+    borderWidth: 0,
   },
   cardFace: {
     position: 'absolute',
@@ -725,26 +791,68 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: 16,
     overflow: 'hidden',
+    backfaceVisibility: 'hidden',
+    backgroundColor: '#F5F5F5', // Softer white to match page background color
+    ...(Platform.OS === 'web' ? {
+      transformStyle: 'preserve-3d',
+      webkitBackfaceVisibility: 'hidden' // Add webkit prefix for better browser support
+    } : {}),
+  },
+  cardFront: {
+    backfaceVisibility: 'hidden',
+    backgroundColor: Colors.notebookBackground,
+    borderRadius: 16,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: Colors.cardShadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 5,
+      },
+      android: {
+        elevation: 4,
+      },
+      web: {
+        boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+      }
+    }),
   },
   cardBack: {
-    // Styling specific to the back of the card
+    backfaceVisibility: 'hidden',
+    backgroundColor: Colors.notebookBackground,
+    borderRadius: 16, 
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: Colors.cardShadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 5,
+      },
+      android: {
+        elevation: 4,
+      },
+      web: {
+        boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+      }
+    }),
   },
   contentContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
-    ...(Platform.OS === 'web' ? {
-      // Add subtle 3D effect to content
-      transform: 'translateZ(20px)',
-    } : {}),
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    padding: 20,
+    zIndex: 2, // Ensure content is above the background
   },
   text: {
-    color: Colors.vintageText,
+    color: Colors.notebookText,
     fontWeight: '600',
     textAlign: 'center',
     marginBottom: 16,
-    // Add sepia-like text effect for web
     ...(Platform.OS === 'web' ? {
       textShadow: '0px 1px 2px rgba(74, 60, 43, 0.2), 0px 1px 0px rgba(255, 255, 255, 0.3)', // Enhanced text shadow for depth
     } : {}),
@@ -777,26 +885,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 16,
     right: 16,
-    width: 64,
-    height: 64,
+    width: 0,
+    height: 0,
     resizeMode: 'contain',
-    opacity: 0.2,
+    opacity: 0,
   },
   sampleSentenceContainer: {
     marginTop: 20,
     paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.1)',
+    borderTopWidth: 0,
+    borderTopColor: 'transparent',
   },
   sampleSentenceLabel: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: Colors.vintageAccent,
+    color: Colors.notebookAccent,
     marginBottom: 4,
   },
   sampleSentenceText: {
     fontSize: 16,
-    color: Colors.vintageText,
+    color: Colors.notebookText,
     fontStyle: 'italic',
     lineHeight: 22,
   },

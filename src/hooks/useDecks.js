@@ -15,110 +15,6 @@ export function useDecks() {
     setRefreshKey(prevKey => prevKey + 1);
   };
 
-  const checkAndAutoForkDecks = useCallback(async () => {
-    if (!auth.currentUser) return;
-
-    try {
-      // Get shared decks that are marked for auto-forking
-      const sharedDecksRef = ref(db, 'sharedDecks');
-      const sharedDecksSnapshot = await get(sharedDecksRef);
-
-      if (!sharedDecksSnapshot.exists()) {
-        return;
-      }
-
-      // Get user's preferences to check for deleted decks
-      const userPrefsRef = ref(db, `users/${auth.currentUser.uid}/preferences`);
-      const userPrefsSnapshot = await get(userPrefsRef);
-      const userPrefs = userPrefsSnapshot.exists() ? userPrefsSnapshot.val() : {};
-      const deletedAutoForkedDecks = userPrefs.deletedAutoForkedDecks || [];
-
-      // Get user's current decks
-      const userDecksRef = ref(db, `users/${auth.currentUser.uid}/decks`);
-      const userDecksSnapshot = await get(userDecksRef);
-      const userDecks = userDecksSnapshot.exists() ? userDecksSnapshot.val() : {};
-
-      // Process decks to auto-fork and to remove (if marked as removedFromAutoFork)
-      const decksToFork = [];
-      const decksToRemove = [];
-
-      sharedDecksSnapshot.forEach((deckSnapshot) => {
-        const deckId = deckSnapshot.key;
-        const deckData = deckSnapshot.val();
-
-        // Check if this deck is marked for removal from auto-fork
-        if (deckData.removedFromAutoFork === true) {
-          // Find any existing copies of this deck in user's collection to remove
-          Object.entries(userDecks).forEach(([userDeckId, userDeckData]) => {
-            if (
-              userDeckData.autoForked === true &&
-              userDeckData.forkedFrom &&
-              userDeckData.forkedFrom.id === deckId
-            ) {
-              decksToRemove.push(userDeckId);
-            }
-          });
-
-          // Add to deletedAutoForkedDecks if not already there
-          if (!deletedAutoForkedDecks.includes(deckId)) {
-            deletedAutoForkedDecks.push(deckId);
-          }
-        }
-        // Check if this deck should be auto-forked and hasn't been deleted by user
-        else if (
-          deckData.autoForkForAll === true &&
-          !deletedAutoForkedDecks.includes(deckId)
-        ) {
-          // Check if user already has this deck or a forked version
-          let alreadyHasDeck = false;
-
-          Object.values(userDecks).forEach((userDeck) => {
-            if (
-              userDeck.id === deckId ||
-              (userDeck.forkedFrom && userDeck.forkedFrom.id === deckId)
-            ) {
-              alreadyHasDeck = true;
-            }
-          });
-
-          if (!alreadyHasDeck) {
-            decksToFork.push({
-              id: deckId,
-              ...deckData
-            });
-          }
-        }
-      });
-
-      // Handle decks that need to be removed
-      const removePromises = decksToRemove.map(deckId => {
-        console.log(`Removing auto-forked deck ${deckId} that was marked for removal`);
-        const deckRef = ref(db, `users/${auth.currentUser.uid}/decks/${deckId}`);
-        return remove(deckRef);
-      });
-
-      // Handle decks that need to be auto-forked
-      const forkPromises = decksToFork.map((deckToFork) => {
-        return forkDeck(deckToFork, true); // Second param indicates this is an auto-fork
-      });
-
-      // Update user preferences with deleted decks list
-      if (deletedAutoForkedDecks.length > 0) {
-        await update(userPrefsRef, { deletedAutoForkedDecks });
-      }
-
-      // Execute all operations
-      if (removePromises.length > 0 || forkPromises.length > 0) {
-        await Promise.all([...removePromises, ...forkPromises]);
-
-        // Refresh decks after changes
-        setRefreshKey(prev => prev + 1);
-      }
-    } catch (error) {
-      console.error('Error checking for auto-fork decks:', error);
-    }
-  }, [auth.currentUser?.uid]);
-
   useEffect(() => {
     console.log(`useDecks hook - refreshKey: ${refreshKey} - auth.currentUser:`, auth.currentUser ? auth.currentUser.uid : "No user");
 
@@ -128,9 +24,6 @@ export function useDecks() {
       setLoading(false);
       return;
     }
-
-    // Check for auto-fork decks first
-    checkAndAutoForkDecks();
 
     let unsubscribe;
     try {
@@ -233,43 +126,6 @@ export function useDecks() {
       if (userDeckSnapshot.exists()) {
         const deckData = userDeckSnapshot.val();
 
-        // If this is an autoforked deck, track it in user preferences to prevent re-adding
-        if (deckData.autoForked === true && deckData.forkedFrom && deckData.forkedFrom.id) {
-          console.log("This is an autoforked deck - marking as explicitly deleted");
-
-          // Get the original deck ID from forkedFrom
-          const originalDeckId = deckData.forkedFrom.id;
-
-          // Add to list of explicitly deleted autoforked decks
-          const userPrefsRef = ref(db, `users/${auth.currentUser.uid}/preferences`);
-          const userPrefsSnapshot = await get(userPrefsRef);
-          const userPrefs = userPrefsSnapshot.exists() ? userPrefsSnapshot.val() : {};
-
-          // Initialize or update the list of deleted autoforked decks
-          const deletedAutoForkedDecks = userPrefs.deletedAutoForkedDecks || [];
-          if (!deletedAutoForkedDecks.includes(originalDeckId)) {
-            deletedAutoForkedDecks.push(originalDeckId);
-          }
-
-          // Update user preferences
-          await update(userPrefsRef, { deletedAutoForkedDecks });
-
-          // If admin deletes an autoforked deck, also turn off autoforking for all if admin
-          if (isAdmin() && deckData.forkedFrom && deckData.forkedFrom.id) {
-            const sharedDeckRef = ref(db, `sharedDecks/${deckData.forkedFrom.id}`);
-            const sharedDeckSnapshot = await get(sharedDeckRef);
-
-            if (sharedDeckSnapshot.exists()) {
-              // Turn off autoforking
-              await update(sharedDeckRef, {
-                autoForkForAll: false
-              });
-
-              console.log(`Admin deleted autoforked deck - turned off autoforking for ${deckData.forkedFrom.id}`);
-            }
-          }
-        }
-
         // If deck is shared and user is creator, also delete from public decks
         if (deckData.isShared) {
           console.log("Deck is shared, checking if user is creator");
@@ -340,29 +196,11 @@ export function useDecks() {
                 ownerEmail: auth.currentUser.email,
               });
 
-              // If admin, also copy to sharedDecks for potential auto-forking
-              if (auth.currentUser.email === 'ahmetkoc1@gmail.com') {
-                const sharedDeckRef = ref(db, `sharedDecks/${deckId}`);
-                await set(sharedDeckRef, {
-                  ...deckData,
-                  isShared: true,
-                  owner: auth.currentUser.uid,
-                  ownerEmail: auth.currentUser.email,
-                  autoForkForAll: deckData.autoForkForAll || false
-                });
-              }
-
               console.log("Deck shared successfully:", deckId);
             } else {
               // If unsharing, remove from public decks
               const publicDeckRef = ref(db, `decks/${deckId}`);
               await remove(publicDeckRef);
-
-              // If admin, also remove from sharedDecks
-              if (auth.currentUser.email === 'ahmetkoc1@gmail.com') {
-                const sharedDeckRef = ref(db, `sharedDecks/${deckId}`);
-                await remove(sharedDeckRef);
-              }
 
               console.log("Deck unshared successfully:", deckId);
             }
@@ -380,80 +218,253 @@ export function useDecks() {
     }
   };
 
-  // Function to check if user is admin
-  const isAdmin = () => {
-    return auth.currentUser && (
-      auth.currentUser.email === 'ahmetkoc1@gmail.com'
-    );
-  };
-
-  // Add this function for handling auto-forking
-  const forkDeck = async (sourceDeck, isAutoForked = false) => {
+  const forkDeck = async (sourceDeck) => {
     if (!auth.currentUser) return null;
     
     try {
-      // Check if this is a deck that was marked for removal
-      if (isAutoForked && sourceDeck.removedFromAutoFork === true) {
-        console.log(`Skipping auto-fork for deck ${sourceDeck.id} as it was marked for removal`);
-        return null;
-      }
-      
-      // Check user preferences to see if this deck was explicitly deleted
-      const userPrefsRef = ref(db, `users/${auth.currentUser.uid}/preferences`);
-      const userPrefsSnapshot = await get(userPrefsRef);
-      const userPrefs = userPrefsSnapshot.exists() ? userPrefsSnapshot.val() : {};
-      const deletedAutoForkedDecks = userPrefs.deletedAutoForkedDecks || [];
-      
-      // Skip if user has explicitly deleted this deck
-      if (isAutoForked && deletedAutoForkedDecks.includes(sourceDeck.id)) {
-        console.log(`Skipping auto-fork for deck ${sourceDeck.id} as user has explicitly deleted it`);
-        return null;
-      }
-      
-      // Create a new deck reference
-      const newDeckRef = push(ref(db, `users/${auth.currentUser.uid}/decks`));
+      console.log(`Forking deck: ${sourceDeck.id}`);
+
+      // Create a new deck in the user's collection
+      const userDecksRef = ref(db, `users/${auth.currentUser.uid}/decks`);
+      const newDeckRef = push(userDecksRef);
       const newDeckId = newDeckRef.key;
+
+      // Reset the known status for all cards in the source deck
+      let cardsForNewDeck = [];
       
-      // Prepare the new deck object
-      const newDeck = {
-        ...sourceDeck,
+      if (sourceDeck.cards) {
+        // Handle both array and object data structures for cards
+        const sourceCards = Array.isArray(sourceDeck.cards) 
+          ? sourceDeck.cards 
+          : Object.values(sourceDeck.cards);
+          
+        // Create new cards with isKnown set to false
+        cardsForNewDeck = sourceCards.map(card => ({
+          ...card,
+          isKnown: false  // Reset the known status for all cards
+        }));
+      }
+
+      // Create the forked deck with the same cards as the source
+      const forkedDeck = {
         id: newDeckId,
-        name: sourceDeck.name || 'Deck',
+        name: `${sourceDeck.name} (Forked)`,
+        createdAt: new Date().toISOString(),
         creatorId: auth.currentUser.uid,
         creatorName: auth.currentUser.displayName || auth.currentUser.email || 'User',
-        isShared: false,
+        isShared: false, // Default to not shared
+        cards: cardsForNewDeck,
         forkedFrom: {
-          id: sourceDeck.id || '',
-          name: sourceDeck.name || 'Unknown Deck',
-          creatorName: sourceDeck.creatorName || 'Unknown Creator'
-        },
-        autoForked: isAutoForked
-      };
-      
-      // Handle cards properly whether they're an array or object
-      if (sourceDeck.cards) {
-        newDeck.cards = {};
-        // Handle both array and object formats
-        if (Array.isArray(sourceDeck.cards)) {
-          sourceDeck.cards.forEach((card, index) => {
-            newDeck.cards[`card_${index}`] = card;
-          });
-        } else {
-          newDeck.cards = { ...sourceDeck.cards };
+          id: sourceDeck.id,
+          name: sourceDeck.name,
+          creatorId: sourceDeck.creatorId
         }
-      }
-      
-      // Save the new forked deck
-      await set(newDeckRef, newDeck);
+      };
+
+      // Save the forked deck
+      await set(newDeckRef, forkedDeck);
       console.log(`Deck forked successfully. New ID: ${newDeckId}`);
-      
-      // Return the new deck ID
-      return newDeckId;
+
+      return {
+        id: newDeckId,
+        ...forkedDeck
+      };
     } catch (error) {
-      console.error("Error forking deck:", error);
+      console.error('Error forking deck:', error);
       return null;
     }
   };
 
-  return { decks, loading, error, createDeck, deleteDeck, shareDeck, refreshDecks };
+  const updateDeck = async (deckId, updates) => {
+    if (!auth.currentUser) {
+      console.error("Cannot update deck: No authenticated user");
+      throw new Error('You must be logged in to update a deck');
+    }
+
+    try {
+      // First, check if the deck exists in the user's collection
+      const userDeckRef = ref(db, `users/${auth.currentUser.uid}/decks/${deckId}`);
+      const snapshot = await get(userDeckRef);
+
+      if (!snapshot.exists()) {
+        throw new Error('Deck not found in your collection');
+      }
+
+      // Get the current deck data
+      const currentDeck = snapshot.val();
+
+      // Apply updates
+      await update(userDeckRef, updates);
+
+      // If the deck is shared, also update the public copy
+      if (currentDeck.isShared && currentDeck.creatorId === auth.currentUser.uid) {
+        const publicDeckRef = ref(db, `decks/${deckId}`);
+        await update(publicDeckRef, updates);
+      }
+
+      console.log(`Deck ${deckId} updated successfully`);
+      return true;
+    } catch (error) {
+      console.error('Error updating deck:', error);
+      throw error;
+    }
+  };
+
+  const addCardToDeck = async (deckId, card) => {
+    if (!auth.currentUser) {
+      console.error("Cannot add card: No authenticated user");
+      throw new Error('You must be logged in to add a card');
+    }
+
+    try {
+      // First, check if the deck exists in the user's collection
+      const userDeckRef = ref(db, `users/${auth.currentUser.uid}/decks/${deckId}`);
+      const snapshot = await get(userDeckRef);
+
+      if (!snapshot.exists()) {
+        throw new Error('Deck not found in your collection');
+      }
+
+      const deckData = snapshot.val();
+      const cards = deckData.cards || [];
+
+      // Generate a unique ID for the card
+      const cardId = Date.now().toString();
+      const newCard = {
+        id: cardId,
+        ...card,
+        createdAt: new Date().toISOString()
+      };
+
+      // Add the card to the deck
+      cards.push(newCard);
+
+      // Update the deck with the new cards array
+      await update(userDeckRef, { cards });
+
+      // If the deck is shared, also update the public copy
+      if (deckData.isShared && deckData.creatorId === auth.currentUser.uid) {
+        const publicDeckRef = ref(db, `decks/${deckId}`);
+        await update(publicDeckRef, { cards });
+      }
+
+      console.log(`Card added to deck ${deckId} successfully`);
+      return {
+        deckId,
+        card: newCard
+      };
+    } catch (error) {
+      console.error('Error adding card to deck:', error);
+      throw error;
+    }
+  };
+
+  const updateCardInDeck = async (deckId, cardId, updates) => {
+    if (!auth.currentUser) {
+      console.error("Cannot update card: No authenticated user");
+      throw new Error('You must be logged in to update a card');
+    }
+
+    try {
+      // First, check if the deck exists in the user's collection
+      const userDeckRef = ref(db, `users/${auth.currentUser.uid}/decks/${deckId}`);
+      const snapshot = await get(userDeckRef);
+
+      if (!snapshot.exists()) {
+        throw new Error('Deck not found in your collection');
+      }
+
+      const deckData = snapshot.val();
+      const cards = deckData.cards || [];
+
+      // Find the card to update
+      const cardIndex = cards.findIndex(card => card.id === cardId);
+      if (cardIndex === -1) {
+        throw new Error('Card not found in deck');
+      }
+
+      // Update the card
+      cards[cardIndex] = {
+        ...cards[cardIndex],
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update the deck with the modified cards array
+      await update(userDeckRef, { cards });
+
+      // If the deck is shared, also update the public copy
+      if (deckData.isShared && deckData.creatorId === auth.currentUser.uid) {
+        const publicDeckRef = ref(db, `decks/${deckId}`);
+        await update(publicDeckRef, { cards });
+      }
+
+      console.log(`Card ${cardId} in deck ${deckId} updated successfully`);
+      return {
+        deckId,
+        card: cards[cardIndex]
+      };
+    } catch (error) {
+      console.error('Error updating card in deck:', error);
+      throw error;
+    }
+  };
+
+  const deleteCardFromDeck = async (deckId, cardId) => {
+    if (!auth.currentUser) {
+      console.error("Cannot delete card: No authenticated user");
+      throw new Error('You must be logged in to delete a card');
+    }
+
+    try {
+      // First, check if the deck exists in the user's collection
+      const userDeckRef = ref(db, `users/${auth.currentUser.uid}/decks/${deckId}`);
+      const snapshot = await get(userDeckRef);
+
+      if (!snapshot.exists()) {
+        throw new Error('Deck not found in your collection');
+      }
+
+      const deckData = snapshot.val();
+      const cards = deckData.cards || [];
+
+      // Filter out the card to delete
+      const updatedCards = cards.filter(card => card.id !== cardId);
+
+      // If no cards were removed, the card wasn't found
+      if (updatedCards.length === cards.length) {
+        throw new Error('Card not found in deck');
+      }
+
+      // Update the deck with the filtered cards array
+      await update(userDeckRef, { cards: updatedCards });
+
+      // If the deck is shared, also update the public copy
+      if (deckData.isShared && deckData.creatorId === auth.currentUser.uid) {
+        const publicDeckRef = ref(db, `decks/${deckId}`);
+        await update(publicDeckRef, { cards: updatedCards });
+      }
+
+      console.log(`Card ${cardId} deleted from deck ${deckId} successfully`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting card from deck:', error);
+      throw error;
+    }
+  };
+
+  return {
+    decks,
+    loading,
+    error,
+    refreshDecks,
+    createDeck,
+    deleteDeck,
+    shareDeck,
+    forkDeck,
+    updateDeck,
+    addCardToDeck,
+    updateCardInDeck,
+    deleteCardFromDeck
+  };
 }
