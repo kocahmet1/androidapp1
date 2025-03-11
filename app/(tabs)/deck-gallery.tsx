@@ -66,7 +66,8 @@ export default function SetGallery() {
       // Add to copying state to show loading indicator
       setCopyingIds(prev => [...prev, item.id]);
       
-      const forkedDeckId = await forkDeck(item);
+      // Only pass the deck ID instead of the entire deck object
+      const forkedDeckId = await forkDeck(item.id);
       
       if (forkedDeckId) {
         Alert.alert(
@@ -108,6 +109,10 @@ export default function SetGallery() {
       creatorDisplay = item.ownerEmail;
     }
 
+    // Check if the current user is the creator of this deck
+    const isCurrentUserCreator = auth.currentUser && 
+      (item.creatorId === auth.currentUser.uid || item.owner === auth.currentUser.uid);
+
     return (
       <TouchableOpacity 
         style={styles.setCard}
@@ -117,20 +122,23 @@ export default function SetGallery() {
         <Text style={styles.creatorName}>by {creatorDisplay}</Text>
         <Text style={styles.cardCount}>{totalCards} words</Text>
         
-        <TouchableOpacity
-          style={styles.copyButton}
-          onPress={(e) => handleCopySet(e, item)}
-          disabled={isCopying}
-        >
-          {isCopying ? (
-            <ActivityIndicator size="small" color="#007AFF" />
-          ) : (
-            <>
-              <MaterialIcons name="content-copy" size={16} color="#007AFF" />
-              <Text style={styles.copyButtonText}>Copy</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        {/* Only show the copy button if the current user is not the creator */}
+        {!isCurrentUserCreator && (
+          <TouchableOpacity
+            style={styles.copyButton}
+            onPress={(e) => handleCopySet(e, item)}
+            disabled={isCopying}
+          >
+            {isCopying ? (
+              <ActivityIndicator size="small" color="#007AFF" />
+            ) : (
+              <>
+                <MaterialIcons name="content-copy" size={16} color="#007AFF" />
+                <Text style={styles.copyButtonText}>Copy</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     );
   };

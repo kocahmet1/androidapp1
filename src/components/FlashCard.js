@@ -13,6 +13,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { PanGestureHandler } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Easing } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '../firebase/config';
+
+// Storage key for card layout preference (same as in settings.tsx)
+const CARD_LAYOUT_PREF_KEY = 'cardLayoutPreference';
+// Base key for tracking if user has seen the checkmark tutorial
+const CHECKMARK_TUTORIAL_BASE_KEY = 'checkmarkTutorialSeen';
 
 // Modern color palette with notebook additions
 const Colors = {
@@ -50,12 +57,15 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
   const windowHeight = windowDimensions.height;
 
   // Initialize state
-  const [isFlipped, setIsFlipped] = useState(!showFront);
+  const [isFlipped, setIsFlipped] = useState(false);
   const [tickActive, setTickActive] = useState(isKnown);
   const [lightingPosition, setLightingPosition] = useState('50% 50%');
+  const [definitionFirst, setDefinitionFirst] = useState(false);
+  // State to track if the tutorial has been shown
+  const [showTutorial, setShowTutorial] = useState(false);
   
-  // Animation values - fix the initial values based on showFront
-  const flipAnim = useRef(new Animated.Value(showFront ? 0 : 180)).current;
+  // Animation values - we'll set initial values after loading preferences
+  const flipAnim = useRef(new Animated.Value(0)).current;
   const tiltX = useRef(new Animated.Value(0)).current;
   const tiltY = useRef(new Animated.Value(0)).current;
   const translateX = useRef(new Animated.Value(0)).current;
@@ -63,6 +73,10 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
   const scale = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const hintOpacity = useRef(new Animated.Value(1)).current;
+
+  // Animation for tutorial elements
+  const tutorialOpacity = useRef(new Animated.Value(0)).current;
+  const tutorialArrowAnim = useRef(new Animated.Value(0)).current;
 
   // Update dimensions on window resize (web only)
   const [windowDimensionsState, setWindowDimensionsState] = useState(windowDimensions);
@@ -91,14 +105,94 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
   // Pulse animation for hints
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
+  // Load layout preferences and check if tutorial has been seen before
+  useEffect(() => {
+    const loadLayoutPreference = async () => {
+      try {
+        const savedPref = await AsyncStorage.getItem(CARD_LAYOUT_PREF_KEY);
+        const definitionFirstPref = savedPref !== null ? JSON.parse(savedPref) : false;
+        setDefinitionFirst(definitionFirstPref);
+        
+        // Initialize flip state based on preference (if definitionFirst is true, we should show back first)
+        const shouldFlip = definitionFirstPref;
+        setIsFlipped(shouldFlip);
+        flipAnim.setValue(shouldFlip ? 180 : 0);
+
+        // Get current user ID
+        const userId = auth.currentUser?.uid || 'anonymous';
+        
+        // Check if user has seen tutorial before (using user-specific key)
+        const tutorialKey = `${CHECKMARK_TUTORIAL_BASE_KEY}_${userId}`;
+        const tutorialSeen = await AsyncStorage.getItem(tutorialKey);
+        
+        if (tutorialSeen === null) {
+          setShowTutorial(true);
+          // Animate tutorial elements after a short delay
+          setTimeout(() => {
+            Animated.parallel([
+              Animated.timing(tutorialOpacity, {
+                toValue: 1,
+                duration: 500,
+                useNativeDriver: Platform.OS !== 'web',
+              }),
+              Animated.loop(
+                Animated.sequence([
+                  Animated.timing(tutorialArrowAnim, {
+                    toValue: 1,
+                    duration: 800,
+                    useNativeDriver: Platform.OS !== 'web',
+                  }),
+                  Animated.timing(tutorialArrowAnim, {
+                    toValue: 0,
+                    duration: 800,
+                    useNativeDriver: Platform.OS !== 'web',
+                  }),
+                ])
+              ),
+            ]).start();
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('Failed to load card layout preference:', error);
+      }
+    };
+    
+    loadLayoutPreference();
+  }, []);
+
+  // Function to dismiss tutorial and save that user has seen it
+  const dismissTutorial = async () => {
+    try {
+      // Get current user ID
+      const userId = auth.currentUser?.uid || 'anonymous';
+      
+      // Use user-specific key
+      const tutorialKey = `${CHECKMARK_TUTORIAL_BASE_KEY}_${userId}`;
+      await AsyncStorage.setItem(tutorialKey, 'true');
+      
+      // Fade out tutorial
+      Animated.timing(tutorialOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: Platform.OS !== 'web',
+      }).start(() => {
+        setShowTutorial(false);
+      });
+    } catch (error) {
+      console.error('Failed to save tutorial status:', error);
+      setShowTutorial(false);
+    }
+  };
+
   // Reset card state when front text changes (new card)
   useEffect(() => {
     // Reset tickActive when card changes
     setTickActive(isKnown);
 
-    // Reset flip state to front when card changes
-    setIsFlipped(false);
-    flipAnim.setValue(0);
+    // Reset flip state based on the user's preference
+    const shouldFlip = definitionFirst;
+    setIsFlipped(shouldFlip);
+    flipAnim.setValue(shouldFlip ? 180 : 0);
 
     // Start pulse animation
     Animated.loop(
@@ -141,7 +235,7 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
         }),
       ]).start();
     }, 50);
-  }, [front, isKnown]);
+  }, [front, isKnown, definitionFirst]);
 
   // Handle manual flipping when card is tapped
   const handleFlip = () => {
@@ -247,7 +341,7 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
             useNativeDriver: Platform.OS !== 'web',
           }),
           
-          // Progressive scaling to enhance 3D effect during swivel
+          // Progressive scaling to enhance 3D effect during rotation
           Animated.timing(scale, {
             toValue: 0.8,
             duration: duration,
@@ -313,6 +407,11 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
 
   // Handle marking card as known
   const handleKnow = () => {
+    // If tutorial is showing, dismiss it
+    if (showTutorial) {
+      dismissTutorial();
+    }
+    
     // Toggle the tick state and trigger animation only when marking as known
     setTickActive(current => {
       const newState = !current;
@@ -620,6 +719,74 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
             </TouchableOpacity>
           </Animated.View>
           
+          {/* Tutorial overlay */}
+          {showTutorial && (
+            <Animated.View 
+              style={[
+                styles.tutorialOverlay,
+                { opacity: tutorialOpacity }
+              ]}
+            >
+              <TouchableWithoutFeedback onPress={dismissTutorial}>
+                <View style={styles.tutorialContainer}>
+                  {/* Tutorial speech bubble first */}
+                  <Animated.View 
+                    style={[
+                      styles.tutorialBubble,
+                      {
+                        transform: [
+                          {
+                            scale: tutorialArrowAnim.interpolate({
+                              inputRange: [0, 0.5, 1],
+                              outputRange: [1, 1.03, 1]
+                            })
+                          }
+                        ]
+                      }
+                    ]}
+                  >
+                    <Text style={styles.tutorialText}>
+                      You can tap the checkmark to mark words as known!
+                    </Text>
+                  </Animated.View>
+
+                  {/* Animated hand pointing to checkmark */}
+                  <Animated.View 
+                    style={[
+                      styles.handContainer,
+                      {
+                        transform: [
+                          { 
+                            translateX: tutorialArrowAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, 15]
+                            })
+                          },
+                          {
+                            translateY: tutorialArrowAnim.interpolate({
+                              inputRange: [0, 0.5, 1],
+                              outputRange: [0, -5, 0]
+                            })
+                          },
+                          {
+                            scale: tutorialArrowAnim.interpolate({
+                              inputRange: [0, 0.5, 1],
+                              outputRange: [1, 1.1, 1]
+                            })
+                          }
+                        ]
+                      }
+                    ]}
+                  >
+                    <View style={styles.handPointer}>
+                      <MaterialIcons name="touch-app" size={36} color={Colors.primary} style={styles.handIcon} />
+                    </View>
+                  </Animated.View>
+                </View>
+              </TouchableWithoutFeedback>
+            </Animated.View>
+          )}
+          
           {/* Front of card */}
           <Animated.View style={[styles.cardFace, styles.cardFront, frontAnimatedStyle]}>
             <LinearGradient
@@ -631,8 +798,12 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
               {/* Render horizontal lines dynamically for React Native */}
               {Platform.OS !== 'web' && renderNotebookLines()}
               <View style={styles.contentContainer}>
-                <Text style={[styles.text, { fontSize: getResponsiveFontSize(28) }]}>{front}</Text>
-                <Animated.Text style={[styles.hint, hintAnimatedStyle]}>Tap to flip</Animated.Text>
+                <View style={styles.mainContentContainer}>
+                  <Text style={[styles.text, { fontSize: getResponsiveFontSize(28) }]}>{front}</Text>
+                </View>
+                <View style={styles.hintContainer}>
+                  <Animated.Text style={[styles.hint, hintAnimatedStyle]}>Tap to flip</Animated.Text>
+                </View>
               </View>
             </LinearGradient>
           </Animated.View>
@@ -648,14 +819,18 @@ const FlashCard = forwardRef(({ front, back, onKnow, onSwipe, isKnown, showFront
               {/* Render horizontal lines dynamically for React Native */}
               {Platform.OS !== 'web' && renderNotebookLines()}
               <View style={styles.contentContainer}>
-                <Text style={[styles.text, { fontSize: getResponsiveFontSize(28) }]}>{back}</Text>
-                {sampleSentence ? (
-                  <View key="sample-sentence" style={styles.sampleSentenceContainer}>
-                    <Text style={styles.sampleSentenceLabel}>Sample:</Text>
-                    <Text style={styles.sampleSentenceText}>{sampleSentence}</Text>
-                  </View>
-                ) : null}
-                <Animated.Text style={[styles.hint, hintAnimatedStyle]}>Tap to flip back</Animated.Text>
+                <View style={styles.mainContentContainer}>
+                  <Text style={[styles.text, { fontSize: getResponsiveFontSize(28) }]}>{back}</Text>
+                  {sampleSentence ? (
+                    <View key="sample-sentence" style={styles.sampleSentenceContainer}>
+                      <Text style={styles.sampleSentenceLabel}>Sample:</Text>
+                      <Text style={styles.sampleSentenceText}>{sampleSentence}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.hintContainer}>
+                  <Animated.Text style={[styles.hint, hintAnimatedStyle]}>Tap to flip back</Animated.Text>
+                </View>
               </View>
             </LinearGradient>
           </Animated.View>
@@ -840,13 +1015,19 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
     position: 'relative',
     width: '100%',
     height: '100%',
     padding: 20,
     zIndex: 2, // Ensure content is above the background
+  },
+  mainContentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
   },
   text: {
     color: Colors.notebookText,
@@ -859,16 +1040,21 @@ const styles = StyleSheet.create({
   },
   hint: {
     textAlign: 'center',
-    marginTop: 16,
     color: Colors.hint,
     fontStyle: 'italic',
     fontSize: 14,
   },
+  hintContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 'auto',
+    paddingBottom: 10,
+  },
   tickButton: {
     position: 'absolute',
-    top: 16,
-    right: 16,
-    zIndex: 10,
+    top: 10, 
+    right: 10,
+    zIndex: 5,
   },
   tickButtonContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
@@ -907,6 +1093,62 @@ const styles = StyleSheet.create({
     color: Colors.notebookText,
     fontStyle: 'italic',
     lineHeight: 22,
+  },
+  // Tutorial styles
+  tutorialOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    zIndex: 10,
+    paddingTop: 20,
+    paddingRight: 20,
+  },
+  tutorialContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  handContainer: {
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  handPointer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  handIcon: {
+    transform: [{ rotate: '45deg' }], // Rotate to point toward checkmark
+  },
+  tutorialBubble: {
+    backgroundColor: Colors.primary,
+    borderRadius: 16,
+    padding: 12,
+    maxWidth: 200,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+  tutorialText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 

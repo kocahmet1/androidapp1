@@ -69,6 +69,19 @@ export default function TabsLayout() {
           tabBarIcon: ({ color }) => <TabBarIcon name="plus-circle-outline" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          headerTitle: () => (
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TabBarIcon name="cog" color="#6366F1" size={24} />
+              <Text style={{ marginLeft: 8, fontSize: 17, fontWeight: '600', color: '#F8FAFC' }}>Settings</Text>
+            </View>
+          ),
+          tabBarIcon: ({ color }) => <TabBarIcon name="cog-outline" color={color} />,
+        }}
+      />
     </Tabs>
   );
 }

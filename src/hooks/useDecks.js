@@ -8,6 +8,7 @@ export function useDecks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0); // Add a refresh key to force re-fetching
+  const [user, setUser] = useState(auth.currentUser); // Track the user state locally
 
   // Function to force refresh the decks data
   const refreshDecks = () => {
@@ -15,23 +16,41 @@ export function useDecks() {
     setRefreshKey(prevKey => prevKey + 1);
   };
 
+  // Set up auth state listener separate from the data fetching
   useEffect(() => {
-    console.log(`useDecks hook - refreshKey: ${refreshKey} - auth.currentUser:`, auth.currentUser ? auth.currentUser.uid : "No user");
+    const unsubscribeAuth = auth.onAuthStateChanged((authUser) => {
+      setUser(authUser);
+    });
+    
+    return () => unsubscribeAuth();
+  }, []);
 
-    if (!auth.currentUser) {
+  useEffect(() => {
+    console.log(`useDecks hook - refreshKey: ${refreshKey} - auth.currentUser:`, user ? user.uid : "No user");
+
+    if (!user) {
       console.log("useDecks: No current user, returning empty decks");
       setDecks([]);
       setLoading(false);
+      setError(null); // Clear any previous errors
       return;
     }
 
     let unsubscribe;
     try {
-      const userDecksRef = ref(db, `users/${auth.currentUser.uid}/decks`);
-      console.log("Fetching decks from:", `users/${auth.currentUser.uid}/decks`);
+      const userDecksRef = ref(db, `users/${user.uid}/decks`);
+      console.log("Fetching decks from:", `users/${user.uid}/decks`);
 
       unsubscribe = onValue(userDecksRef, (snapshot) => {
         try {
+          // Check if user is still logged in before processing data
+          if (!auth.currentUser) {
+            console.log("User signed out during fetch, ignoring results");
+            setDecks([]);
+            setLoading(false);
+            return;
+          }
+          
           const data = snapshot.val();
           console.log("Decks data received:", data ? "Data exists" : "No data");
 
@@ -55,8 +74,14 @@ export function useDecks() {
           setLoading(false);
         }
       }, (error) => {
-        console.error('Error loading decks:', error);
-        setError('Error loading decks');
+        // Only log error if user is still signed in
+        if (auth.currentUser) {
+          console.error('Error loading decks:', error);
+          setError('Error loading decks');
+        } else {
+          console.log('Ignoring error after sign-out:', error.message);
+          setError(null);
+        }
         setDecks([]);
         setLoading(false);
       });
@@ -69,10 +94,11 @@ export function useDecks() {
 
     return () => {
       if (unsubscribe) {
+        console.log("Cleaning up decks listener");
         unsubscribe();
       }
     };
-  }, [auth.currentUser?.uid, refreshKey]); // Re-run when user ID changes or refreshKey changes
+  }, [user, refreshKey]); // Re-run when user changes or refreshKey changes
 
   const createDeck = async (name, isShared = false) => {
     if (!auth.currentUser) {
@@ -178,6 +204,11 @@ export function useDecks() {
               throw new Error('Deck not found');
             }
 
+            // Check if this is a forked deck - only original creators can share to gallery
+            if (deckData.forkedFrom) {
+              throw new Error('Forked decks cannot be shared to the gallery. Only original deck creators can share decks.');
+            }
+
             // If isShared is not provided, toggle the current value or default to true
             const currentIsShared = deckData.isShared || false;
             const newIsShared = isShared !== undefined ? isShared : !currentIsShared;
@@ -195,83 +226,81 @@ export function useDecks() {
                 owner: auth.currentUser.uid,
                 ownerEmail: auth.currentUser.email,
               });
-
-              console.log("Deck shared successfully:", deckId);
+              console.log("Deck is now shared in gallery:", deckId);
             } else {
               // If unsharing, remove from public decks
               const publicDeckRef = ref(db, `decks/${deckId}`);
               await remove(publicDeckRef);
-
-              console.log("Deck unshared successfully:", deckId);
+              console.log("Deck removed from gallery:", deckId);
             }
 
-            resolve(true);
+            resolve(newIsShared);
           } catch (error) {
-            console.error('Error in share deck operation:', error);
+            console.error('Error updating deck share status:', error);
             reject(error);
           }
-        }, { onlyOnce: true });
+        }, {
+          onlyOnce: true
+        });
       });
     } catch (error) {
-      console.error('Error sharing deck:', error);
+      console.error('Error in shareDeck:', error);
       throw error;
     }
   };
 
-  const forkDeck = async (sourceDeck) => {
-    if (!auth.currentUser) return null;
-    
+  const forkDeck = async (publicDeckId) => {
+    if (!auth.currentUser) {
+      console.error("Cannot fork deck: No authenticated user");
+      throw new Error('You must be logged in to fork a deck');
+    }
+
     try {
-      console.log(`Forking deck: ${sourceDeck.id}`);
+      console.log("Attempting to fork deck:", publicDeckId);
 
-      // Create a new deck in the user's collection
-      const userDecksRef = ref(db, `users/${auth.currentUser.uid}/decks`);
-      const newDeckRef = push(userDecksRef);
-      const newDeckId = newDeckRef.key;
+      // Get the public deck data
+      const publicDeckRef = ref(db, `decks/${publicDeckId}`);
+      const publicDeckSnapshot = await get(publicDeckRef);
 
-      // Reset the known status for all cards in the source deck
-      let cardsForNewDeck = [];
-      
-      if (sourceDeck.cards) {
-        // Handle both array and object data structures for cards
-        const sourceCards = Array.isArray(sourceDeck.cards) 
-          ? sourceDeck.cards 
-          : Object.values(sourceDeck.cards);
-          
-        // Create new cards with isKnown set to false
-        cardsForNewDeck = sourceCards.map(card => ({
-          ...card,
-          isKnown: false  // Reset the known status for all cards
-        }));
+      if (!publicDeckSnapshot.exists()) {
+        console.error("Public deck not found:", publicDeckId);
+        throw new Error('Deck not found in gallery');
       }
 
-      // Create the forked deck with the same cards as the source
+      const publicDeckData = publicDeckSnapshot.val();
+
+      // Create a forked version in the user's decks
+      const userDecksRef = ref(db, `users/${auth.currentUser.uid}/decks`);
+      const forkedDeckRef = push(userDecksRef);
+      const forkedDeckId = forkedDeckRef.key;
+
+      // Create a new forked deck object
       const forkedDeck = {
-        id: newDeckId,
-        name: `${sourceDeck.name} (Forked)`,
+        ...publicDeckData,
+        id: forkedDeckId,
+        name: `${publicDeckData.name} (forked)`,
         createdAt: new Date().toISOString(),
         creatorId: auth.currentUser.uid,
-        creatorName: auth.currentUser.displayName || auth.currentUser.email || 'User',
-        isShared: false, // Default to not shared
-        cards: cardsForNewDeck,
-        forkedFrom: {
-          id: sourceDeck.id,
-          name: sourceDeck.name,
-          creatorId: sourceDeck.creatorId
-        }
+        isShared: false, // Forked decks start as not shared
+        forkedFrom: publicDeckId,
+        originalCreator: publicDeckData.creatorId || publicDeckData.owner,
       };
 
-      // Save the forked deck
-      await set(newDeckRef, forkedDeck);
-      console.log(`Deck forked successfully. New ID: ${newDeckId}`);
+      // Remove any properties that shouldn't be copied
+      delete forkedDeck.owner;
+      delete forkedDeck.ownerEmail;
+
+      // Save the forked deck to the user's decks
+      console.log("Creating forked deck:", forkedDeckId);
+      await set(forkedDeckRef, forkedDeck);
 
       return {
-        id: newDeckId,
-        ...forkedDeck
+        id: forkedDeckId,
+        ...forkedDeck,
       };
     } catch (error) {
       console.error('Error forking deck:', error);
-      return null;
+      throw error;
     }
   };
 

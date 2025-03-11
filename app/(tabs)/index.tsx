@@ -4,6 +4,14 @@ import { useDecks } from '../../src/hooks/useDecks';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ProgressBar from '../../src/components/ProgressBar';
+import { TouchableWithoutFeedback } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '../../src/firebase/config';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+
+// Base key for tracking if user has seen the gallery tutorial
+const GALLERY_TUTORIAL_BASE_KEY = 'galleryTutorialSeen';
 
 // Create a separate component for set items to properly use hooks
 const SetItem = React.memo(({ item, index, onDelete }) => {
@@ -133,10 +141,103 @@ const SetItem = React.memo(({ item, index, onDelete }) => {
 export default function SetScreen() {
   const { decks, loading, error, deleteDeck, refreshDecks } = useDecks();
   const [refreshing, setRefreshing] = React.useState(false);
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
   
   // Animation values for card effects
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
+
+  // Gallery tutorial state
+  const [showGalleryTutorial, setShowGalleryTutorial] = useState(false);
+  const tutorialOpacity = useRef(new Animated.Value(0)).current;
+  const tutorialArrowAnim = useRef(new Animated.Value(0)).current;
+
+  // Check if gallery tutorial has been seen
+  useEffect(() => {
+    const checkTutorialSeen = async () => {
+      try {
+        // Get current user ID
+        const userId = auth.currentUser?.uid || 'anonymous';
+        
+        // Check if user has seen tutorial before (using user-specific key)
+        const tutorialKey = `${GALLERY_TUTORIAL_BASE_KEY}_${userId}`;
+        const tutorialSeen = await AsyncStorage.getItem(tutorialKey);
+        
+        if (tutorialSeen === null) {
+          setShowGalleryTutorial(true);
+          
+          // Animate tutorial elements after a short delay
+          setTimeout(() => {
+            Animated.parallel([
+              Animated.timing(tutorialOpacity, {
+                toValue: 1,
+                duration: 500,
+                useNativeDriver: Platform.OS !== 'web',
+              }),
+              Animated.loop(
+                Animated.sequence([
+                  Animated.timing(tutorialArrowAnim, {
+                    toValue: 1,
+                    duration: 800,
+                    useNativeDriver: Platform.OS !== 'web',
+                  }),
+                  Animated.timing(tutorialArrowAnim, {
+                    toValue: 0,
+                    duration: 800,
+                    useNativeDriver: Platform.OS !== 'web',
+                  }),
+                ])
+              ),
+            ]).start();
+          }, 1500);
+        }
+      } catch (error) {
+        console.error('Failed to check gallery tutorial status:', error);
+      }
+    };
+    
+    checkTutorialSeen();
+  }, []);
+
+  // Function to dismiss tutorial and save that user has seen it
+  const dismissGalleryTutorial = async () => {
+    try {
+      // Get current user ID
+      const userId = auth.currentUser?.uid || 'anonymous';
+      
+      // Use user-specific key
+      const tutorialKey = `${GALLERY_TUTORIAL_BASE_KEY}_${userId}`;
+      await AsyncStorage.setItem(tutorialKey, 'true');
+      
+      // Fade out tutorial
+      Animated.timing(tutorialOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: Platform.OS !== 'web',
+      }).start(() => {
+        setShowGalleryTutorial(false);
+      });
+    } catch (error) {
+      console.error('Failed to save gallery tutorial status:', error);
+      setShowGalleryTutorial(false);
+    }
+  };
+
+  // Listen for navigation to Set Gallery tab to dismiss tutorial
+  useEffect(() => {
+    if (!showGalleryTutorial) return;
+
+    const unsubscribe = navigation.addListener('state', (e) => {
+      // Check if we've navigated to the deck-gallery screen
+      const currentRoute = e.data?.state?.routes?.[e.data?.state?.index];
+      if (currentRoute?.name === 'deck-gallery') {
+        dismissGalleryTutorial();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, showGalleryTutorial, dismissGalleryTutorial]);
 
   // Debug: Log decks whenever they change
   useEffect(() => {
@@ -249,7 +350,7 @@ export default function SetScreen() {
           <View>
             <TouchableOpacity
               style={styles.createSetButton}
-              onPress={() => router.push('/add-set')}
+              onPress={() => router.push('/add-deck')}
               className="create-button"
             >
               <View style={styles.circleButtonContent}>
@@ -260,21 +361,93 @@ export default function SetScreen() {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.importSetButton}
-              onPress={() => router.push('/set-gallery')}
-              className="import-button"
-            >
-              <View style={styles.circleButtonContent}>
-                <View style={styles.importCircleIcon}>
-                  <MaterialCommunityIcons name="download" size={24} color="#BE185D" />
+            <View style={styles.importButtonContainer}>
+              <TouchableOpacity
+                style={styles.importSetButton}
+                onPress={() => {
+                  if (showGalleryTutorial) {
+                    dismissGalleryTutorial();
+                  }
+                  router.push('/deck-gallery');
+                }}
+                className="import-button"
+              >
+                <View style={styles.circleButtonContent}>
+                  <View style={styles.importCircleIcon}>
+                    <MaterialCommunityIcons name="download" size={24} color="#BE185D" />
+                  </View>
+                  <Text style={styles.importSetButtonText}>Import Set from Gallery</Text>
                 </View>
-                <Text style={styles.importSetButtonText}>Import Set from Gallery</Text>
-              </View>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </View>
           </View>
         }
       />
+      
+      {/* Gallery Tutorial Overlay - Moved to point to the tab bar */}
+      {showGalleryTutorial && (
+        <Animated.View 
+          style={[
+            styles.galleryTutorialOverlay,
+            { 
+              opacity: tutorialOpacity,
+              bottom: 0 + (insets.bottom || 0) // Position right at the tab bar
+            }
+          ]}
+        >
+          <TouchableWithoutFeedback onPress={dismissGalleryTutorial}>
+            <View style={styles.galleryTutorialContainer}>
+              {/* Animated hand pointing to tab bar button */}
+              <Animated.View 
+                style={[
+                  styles.handContainer,
+                  {
+                    transform: [
+                      { 
+                        translateY: tutorialArrowAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 15]
+                        })
+                      },
+                      {
+                        scale: tutorialArrowAnim.interpolate({
+                          inputRange: [0, 0.5, 1],
+                          outputRange: [1, 1.1, 1]
+                        })
+                      }
+                    ]
+                  }
+                ]}
+              >
+                <View style={styles.handPointer}>
+                  <MaterialCommunityIcons name="gesture-tap" size={36} color="#9D4EDD" style={styles.handIcon} />
+                </View>
+              </Animated.View>
+              
+              <Animated.View 
+                style={[
+                  styles.tutorialBubble,
+                  {
+                    marginBottom: -10, // Negative margin to overlap with the hand slightly
+                    transform: [
+                      {
+                        scale: tutorialArrowAnim.interpolate({
+                          inputRange: [0, 0.5, 1],
+                          outputRange: [1, 1.03, 1]
+                        })
+                      }
+                    ]
+                  }
+                ]}
+              >
+                <Text style={styles.tutorialText}>
+                  Go to gallery to import word sets
+                </Text>
+              </Animated.View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Animated.View>
+      )}
     </Animated.View>
   );
 }
@@ -458,6 +631,67 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+  },
+  // Tutorial Styles
+  importButtonContainer: {
+    position: 'relative',
+  },
+  galleryTutorialOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  galleryTutorialContainer: {
+    flexDirection: 'column-reverse', // Reversed to show bubble above hand
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -60, // Move even further to the left to align with second tab
+  },
+  handContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 0, // No margin between hand and bubble
+  },
+  handPointer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  handIcon: {
+    transform: [{ rotate: '180deg' }], // Rotate to point downward
+  },
+  tutorialBubble: {
+    backgroundColor: '#9D4EDD',
+    borderRadius: 16,
+    padding: 12,
+    maxWidth: 300,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    borderWidth: 2,
+    borderColor: '#fff',
+    borderStyle: 'dotted',
+  },
+  tutorialText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   titleContainer: {
     flexDirection: 'row',

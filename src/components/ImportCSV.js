@@ -18,13 +18,16 @@ const ImportCSV = ({ deckId, onImportComplete }) => {
         throw new Error('Please enter some data to import');
       }
 
-      // Parse CSV content (word,definition;word,definition)
+      // Parse CSV content (word,definition,sample sentence;word,definition,sample sentence)
       const pairs = csvText.split(';').filter(pair => pair.trim());
       const validCards = pairs.map(pair => {
-        const [word, definition] = pair.split(',').map(str => str.trim());
+        const parts = pair.split(',').map(str => str.trim());
+        // Extract word, definition, and optional sample sentence
+        const [word, definition, sampleSentence] = parts;
         return {
           front: word,
           back: definition,
+          sampleSentence: sampleSentence || '', // Add sample sentence if provided
           createdAt: new Date().toISOString()
         };
       }).filter(card => card.front && card.back);
@@ -98,7 +101,7 @@ const ImportCSV = ({ deckId, onImportComplete }) => {
             style={styles.input}
             multiline
             numberOfLines={4}
-            placeholder="Paste your words and definitions here in format: word,definition;word,definition"
+            placeholder="Paste your words and definitions here in format: word,definition,sample sentence(optional);word,definition,sample sentence(optional)"
             value={csvText}
             onChangeText={setCsvText}
             textAlignVertical="top"
@@ -117,7 +120,7 @@ const ImportCSV = ({ deckId, onImportComplete }) => {
             </LinearGradient>
           </TouchableOpacity>
           <Text style={styles.helpText}>
-            Format: word,definition;word,definition;word,definition
+            Format: word,definition,sample sentence(optional);word,definition,sample sentence(optional)
           </Text>
         </View>
       )}

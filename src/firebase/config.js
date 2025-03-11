@@ -5,8 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import getFirebaseConfig from './environments';
 
-// Flag to force sign out on app start (set to true to force sign out)
-const FORCE_SIGN_OUT = true;
+// Flag to force sign out on app start (set to false to disable automatic sign-out)
+const FORCE_SIGN_OUT = false;
 
 // Get the appropriate Firebase configuration based on environment
 const firebaseConfig = getFirebaseConfig();

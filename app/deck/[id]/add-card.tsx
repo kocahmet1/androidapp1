@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
+import ImportCSV from '../../../src/components/ImportCSV';
 
 // Modern color palette - matching other components in dark mode
 const Colors = {
@@ -28,15 +29,6 @@ const Colors = {
   error: '#EF4444', // Red
   warning: '#F59E0B', // Amber
 };
-
-// Placeholder LogoHeader component - Replace with your actual implementation
-const LogoHeader = ({ title, showBackButton, showLogo, size }) => (
-  <View style={styles.logoHeader}>
-    {showLogo && <Image source={require('../../../assets/images/1630603219122.jpeg')} style={styles.logo} resizeMode="contain" />}
-    <Text style={styles.logoHeaderTitle}>{title}</Text>
-    {showBackButton && <TouchableOpacity onPress={() => router.back()}><Text>Back</Text></TouchableOpacity>}
-  </View>
-);
 
 export default function AddCardScreen() {
   const { id } = useLocalSearchParams();
@@ -329,13 +321,6 @@ export default function AddCardScreen() {
         colors={Colors.backgroundGradient}
         style={styles.gradientBackground}
       >
-        <LogoHeader 
-          title="Add Cards to Deck" 
-          showBackButton={true} 
-          showLogo={true} 
-          size="small" 
-        />
-
         <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.contentContainer}>
           <Animated.View 
             entering={FadeInDown.duration(300)}
@@ -482,6 +467,41 @@ export default function AddCardScreen() {
             </View>
           </Animated.View>
           
+          <View style={styles.divider} />
+          
+          {/* Import Words section within the scroll container */}
+          <Animated.View 
+            entering={FadeInDown.duration(300).delay(300)}
+            style={styles.section}
+          >
+            <View style={styles.sectionHeaderContainer}>
+              <View style={[styles.sectionHeader, { backgroundColor: '#8B5CF6' }]}>
+                <MaterialIcons name="file-download" size={24} color="#FFFFFF" style={styles.sectionIcon} />
+                <Text style={styles.sectionTitle}>Import Words</Text>
+              </View>
+            </View>
+            
+            <Text style={styles.sectionDescription}>
+              Import multiple words at once using CSV format (word,definition,sample sentence(optional); next word...).
+            </Text>
+            
+            <ImportCSV 
+              deckId={id} 
+              onImportComplete={() => {
+                Alert.alert(
+                  'Import Complete',
+                  'Cards have been added successfully.',
+                  [
+                    { 
+                      text: 'OK', 
+                      onPress: () => router.back() 
+                    }
+                  ]
+                );
+              }} 
+            />
+          </Animated.View>
+          
         </ScrollView>
       </LinearGradient>
     </View>
@@ -499,47 +519,6 @@ const styles = StyleSheet.create({
   centered: {
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  logoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)', // Lighter border for dark mode
-  },
-  logoHeaderTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.text,
-    flex: 1,
-    textAlign: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)', // Lighter border for dark mode
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.text,
-  },
-  headerRight: {
-    width: 40, // To balance the back button
-  },
-  backButtonSmall: {
-    padding: 8,
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   scrollContainer: {
     flex: 1,
@@ -676,10 +655,6 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
-  logo: {
-    width: 50,
-    height: 50,
-  },
   imagePreviewContainer: {
     width: '100%',
     height: 200,
@@ -732,8 +707,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   imageButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
+    color: Colors.text,
+    fontSize: 14,
+    marginLeft: 8,
   },
 });

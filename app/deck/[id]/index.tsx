@@ -310,7 +310,7 @@ export default function DeckScreen() {
               <Text style={styles.buttonText}>Add New Word</Text>
             </TouchableOpacity>
 
-            {isCreator && !deck.isShared && (
+            {isCreator && !deck.isShared && !deck.forkedFrom && (
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={handleShareDeck}
@@ -318,10 +318,6 @@ export default function DeckScreen() {
                 <MaterialIcons name="share" size={18} color="#fff" style={styles.buttonIcon} />
                 <Text style={styles.buttonText}>Share Set in Gallery</Text>
               </TouchableOpacity>
-            )}
-
-            {Platform.OS === 'web' && (
-              <ImportCSV deckId={id} style={styles.actionButton} />
             )}
           </Animated.View>
         )}
